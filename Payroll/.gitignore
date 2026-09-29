@@ -1,0 +1,9 @@
+# Local / editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Never commit credentials
+*.env
+.env*
+connections.toml
