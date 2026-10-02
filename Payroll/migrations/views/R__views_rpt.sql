@@ -6,6 +6,8 @@
    HISTORY
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
+   2026-10-02  V_F_APPROVAL_PROGRESS reads APP.T_F_APPROVAL_STEP_STATE (one row per step)
+               instead of the dropped action log; adds LAST_ACTION and MANAGES_EMPLOYEE_CHECKS.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
    ===================================================================================== */
 
@@ -136,33 +138,35 @@ WITH req AS (
     JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = r.SCENARIO_ID
 ),
 steps AS (
-    SELECT req.REQUEST_ID, req.SCENARIO_ID, req.PERIOD_KEY, req.REQUEST_STATUS,
-           st.STEP_ORDER, st.STEP_TITLE, st.APPROVER_ROLE
+    SELECT req.REQUEST_ID, req.SCENARIO_ID, req.PERIOD_KEY, req.REQUEST_STATUS, req.SCENARIO_TYPE,
+           st.STEP_ORDER, st.STEP_TITLE, st.APPROVER_ROLE,
+           COALESCE(st.MANAGES_EMPLOYEE_CHECKS, FALSE) AS MANAGES_EMPLOYEE_CHECKS
     FROM req
     JOIN CORE.T_P_APPROVAL_STEP st
       ON st.IS_ACTIVE
      AND st.APPLIES_TO IN ('ALL', req.SCENARIO_TYPE)
      AND req.STEP_PERIOD_KEY BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
 ),
-last_action AS (
-    SELECT *
-    FROM APP.T_F_APPROVAL_ACTION
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY REQUEST_ID, STEP_ORDER
-                               ORDER BY INSERT_DATE DESC, ACTION_ID DESC) = 1
-),
-state AS (
-    SELECT s.*,
-           CASE la.ACTION_TYPE WHEN 'APPROVE' THEN 'APPROVED'
-                               WHEN 'REJECT'  THEN 'REJECTED'
-                               ELSE 'PENDING' END AS STEP_STATUS,
-           la.ACTED_BY,
-           la.INSERT_DATE AS ACTED_AT,
-           la.ACTION_COMMENT
+state AS (   -- a step without a row in T_F_APPROVAL_STEP_STATE counts as PENDING
+    SELECT s.REQUEST_ID, s.SCENARIO_ID, s.PERIOD_KEY, s.REQUEST_STATUS,
+           s.STEP_ORDER, s.STEP_TITLE, s.APPROVER_ROLE,
+           COALESCE(ss.STEP_STATUS, 'PENDING') AS STEP_STATUS,
+           ss.ACTED_BY,
+           ss.ACTED_AT,
+           ss.STEP_COMMENT                     AS ACTION_COMMENT,
+           ss.LAST_ACTION,
+           -- employee checks only exist for actual payroll
+           (s.MANAGES_EMPLOYEE_CHECKS AND s.SCENARIO_TYPE = 'ACTUAL') AS MANAGES_EMPLOYEE_CHECKS
     FROM steps s
-    LEFT JOIN last_action la ON la.REQUEST_ID = s.REQUEST_ID AND la.STEP_ORDER = s.STEP_ORDER
+    LEFT JOIN APP.T_F_APPROVAL_STEP_STATE ss
+           ON ss.REQUEST_ID = s.REQUEST_ID AND ss.STEP_ORDER = s.STEP_ORDER
 )
 SELECT
-    state.*,
+    REQUEST_ID, SCENARIO_ID, PERIOD_KEY, REQUEST_STATUS,
+    STEP_ORDER, STEP_TITLE, APPROVER_ROLE,
+    STEP_STATUS, ACTED_BY, ACTED_AT, ACTION_COMMENT,
     STEP_ORDER = MIN(IFF(STEP_STATUS <> 'APPROVED', STEP_ORDER, NULL))
-                 OVER (PARTITION BY REQUEST_ID)                     AS IS_NEXT_STEP
+                 OVER (PARTITION BY REQUEST_ID)                     AS IS_NEXT_STEP,
+    LAST_ACTION,
+    MANAGES_EMPLOYEE_CHECKS
 FROM state;

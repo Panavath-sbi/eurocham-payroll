@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
+   2026-10-02  Approval reset uses APP.T_F_APPROVAL_STEP_STATE (no more action log) and is
+               written to T_F_CHANGE_LOG.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -32,7 +34,7 @@
      "salary_override_usd": null, "fringe_benefit_override_usd": null}]
    Roles: ACTUAL -> PAYROLL_ADMIN; BUDGET / FORECAST -> PAYROLL_ADMIN or BUDGET_EDITOR.
    ACTUAL: period must be OPEN or IN_APPROVAL; overrides are not allowed; a change resets
-   started approvals (step approvals + the changed employees' checks).
+   started approvals (approved steps go back to PENDING + the changed employees' checks).
    BUDGET / FORECAST: scenario must be DRAFT or REJECTED and the period DRAFT.
    ===================================================================================== */
 USE DATABASE PAYROLL_DB;
@@ -207,16 +209,22 @@ BEGIN
         WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY AND REQUEST_STATUS = 'IN_PROGRESS';
 
         IF (v_req IS NOT NULL) THEN
-            -- RESET every step whose latest action is an approval
-            INSERT INTO APP.T_F_APPROVAL_ACTION (REQUEST_ID, STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTION_COMMENT, INSERT_BY, UPDATE_BY)
-            SELECT REQUEST_ID, STEP_ORDER, 'RESET', 'SYSTEM',
-                   'Monthly inputs changed by ' || :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
-            FROM APP.T_F_APPROVAL_ACTION
-            WHERE REQUEST_ID = :v_req
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY STEP_ORDER ORDER BY INSERT_DATE DESC, ACTION_ID DESC) = 1
-                AND ACTION_TYPE = 'APPROVE';
+            -- Every approved step goes back to PENDING (logged first, while still APPROVED)
+            INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+            SELECT 'APP.T_F_APPROVAL_STEP_STATE', OBJECT_CONSTRUCT('REQUEST_ID', REQUEST_ID, 'STEP_ORDER', STEP_ORDER), 'UPDATE',
+                   OBJECT_CONSTRUCT('STEP_STATUS', 'APPROVED'),
+                   OBJECT_CONSTRUCT('ACTION_TYPE', 'RESET', 'STEP_STATUS', 'PENDING', 'COMMENT', 'Monthly inputs changed'),
+                   :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
+            FROM APP.T_F_APPROVAL_STEP_STATE
+            WHERE REQUEST_ID = :v_req AND STEP_STATUS = 'APPROVED';
 
-            -- The changed employees must be checked again by every approver
+            UPDATE APP.T_F_APPROVAL_STEP_STATE
+            SET STEP_STATUS = 'PENDING', LAST_ACTION = 'RESET', ACTED_BY = 'SYSTEM', ACTED_AT = CURRENT_TIMESTAMP,
+                STEP_COMMENT = 'Monthly inputs changed by ' || :P_USER_EMAIL,
+                UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+            WHERE REQUEST_ID = :v_req AND STEP_STATUS = 'APPROVED';
+
+            -- The changed employees must be checked again
             UPDATE APP.T_F_APPROVAL_EMPLOYEE_CHECK
             SET CHECK_STATUS = 'PENDING', CHECKED_BY = NULL,
                 UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL

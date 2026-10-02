@@ -10,6 +10,7 @@
    2026-09-29  Initial version.
    2026-09-29  Moved to tests/ for Git; USE DATABASE removed (set per environment).
    2026-09-29  Renamed test_01_payroll_cycle.sql; run test_02_remaining_procedures.sql after it.
+   2026-10-02  Approvals: one state row per step (T_F_APPROVAL_STEP_STATE); checks without step (4a, 4b, 10).
    ===================================================================================== */
 
 
@@ -86,25 +87,28 @@ CALL APP.SP_CALCULATE_PAYROLL('clerk@example.org', $ACTUAL_ID, 202610);
 /* -------------------------------------------------------------------------------------
    TEST 4 - Save a monthly input: Martin's overtime 1 -> 0
    Expected: status OK, "1 employee(s) updated and payroll recalculated."
-   Side effects: step 1 approval gets a RESET; Martin's checks go back to PENDING;
-   one row in T_F_CHANGE_LOG.
+   Side effects: step 1 goes back to PENDING (LAST_ACTION RESET); Martin's check goes back
+   to PENDING; rows in T_F_CHANGE_LOG for the input change and the reset.
    ------------------------------------------------------------------------------------- */
 SET INPUTS = (SELECT '[{"employee_id": ' || $MARTIN_ID || ', "overtime_days": 0}]');
 CALL APP.SP_SAVE_MONTHLY_INPUT('admin@example.org', $ACTUAL_ID, 202610, $INPUTS);
 
--- 4a. Approval progress for Oct. Expected: step 1 now PENDING (latest action RESET), step 1 is next
-SELECT p.PERIOD_KEY, p.STEP_ORDER, p.STEP_TITLE, p.STEP_STATUS, p.IS_NEXT_STEP
+-- 4a. Approval progress for Oct. Expected: step 1 now PENDING (LAST_ACTION RESET), step 1 is next;
+--     MANAGES_EMPLOYEE_CHECKS is TRUE for step 2 only
+SELECT p.PERIOD_KEY, p.STEP_ORDER, p.STEP_TITLE, p.STEP_STATUS, p.LAST_ACTION, p.IS_NEXT_STEP, p.MANAGES_EMPLOYEE_CHECKS
 FROM RPT.V_F_APPROVAL_PROGRESS p
 WHERE p.SCENARIO_ID = $ACTUAL_ID AND p.PERIOD_KEY = 202610
 ORDER BY p.STEP_ORDER;
 
--- 4b. Employee checks. Expected: Martin PENDING for steps 1 and 2; Sokha still CHECKED
-SELECT e.RESOURCE_CODE, c.STEP_ORDER, c.CHECK_STATUS
+-- 4b. Employee checks (one per employee). Expected: Martin PENDING (was REJECTED);
+--     Sokha still CHECKED; Dara PENDING
+SELECT e.RESOURCE_CODE, c.CHECK_STATUS, c.CHECK_COMMENT
 FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK c
 JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = c.EMPLOYEE_ID
-ORDER BY c.STEP_ORDER, e.RESOURCE_CODE;
+ORDER BY e.RESOURCE_CODE;
 
--- 4c. Audit trail. Expected: newest row shows OVERTIME_DAYS 1 -> 0 by admin@example.org
+-- 4c. Audit trail. Expected: newest row is the RESET of step 1 (TABLE_NAME APP.T_F_APPROVAL_STEP_STATE);
+--     the row before it shows OVERTIME_DAYS 1 -> 0 by admin@example.org
 SELECT TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES:OVERTIME_DAYS AS OLD_OT, NEW_VALUES:OVERTIME_DAYS AS NEW_OT, CHANGED_BY
 FROM APP.T_F_CHANGE_LOG
 ORDER BY CHANGE_ID DESC
@@ -148,12 +152,15 @@ CALL APP.SP_OPEN_PAYROLL_PERIOD('admin@example.org', 202611);
    Expected: finalize OK; open OK "Payroll 202611 opened for 3 employees.";
    Sokha's November lines use the new contract (BASE_SALARY 1,100.00)
    ------------------------------------------------------------------------------------- */
-INSERT INTO APP.T_F_APPROVAL_ACTION (REQUEST_ID, STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTION_COMMENT)
-SELECT r.REQUEST_ID, s.STEP_ORDER, 'APPROVE', s.BY_USER, 'Test approval'
-FROM APP.T_F_APPROVAL_REQUEST r
-CROSS JOIN (SELECT * FROM VALUES (1, 'hr@example.org'), (2, 'treasurer@example.org'), (3, 'director@example.org')
-            AS v (STEP_ORDER, BY_USER)) s
-WHERE r.SCENARIO_ID = $ACTUAL_ID AND r.PERIOD_KEY = 202610 AND r.REQUEST_STATUS = 'IN_PROGRESS';
+UPDATE APP.T_F_APPROVAL_STEP_STATE t
+SET STEP_STATUS = 'APPROVED', LAST_ACTION = 'APPROVE', ACTED_BY = s.BY_USER, ACTED_AT = CURRENT_TIMESTAMP,
+    STEP_COMMENT = 'Test approval'
+FROM (SELECT r.REQUEST_ID, x.STEP_ORDER, x.BY_USER
+      FROM APP.T_F_APPROVAL_REQUEST r
+      CROSS JOIN (SELECT * FROM VALUES (1, 'hr@example.org'), (2, 'treasurer@example.org'), (3, 'director@example.org')
+                  AS v (STEP_ORDER, BY_USER)) x
+      WHERE r.SCENARIO_ID = $ACTUAL_ID AND r.PERIOD_KEY = 202610 AND r.REQUEST_STATUS = 'IN_PROGRESS') s
+WHERE t.REQUEST_ID = s.REQUEST_ID AND t.STEP_ORDER = s.STEP_ORDER;
 
 CALL APP.SP_FINALIZE_PAYROLL('admin@example.org', 202610);
 

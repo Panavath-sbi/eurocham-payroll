@@ -6,6 +6,8 @@
    HISTORY
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
+   2026-10-02  Approvals use APP.T_F_APPROVAL_STEP_STATE (one row per step) instead of the
+               dropped action log; employee checks have no step column (step 2 only).
    Part D: dummy working days and FX rates. Part B: employees, scenarios, inputs,
    approvals and fact rows. Part C: check queries with expected results.
    ===================================================================================== */
@@ -206,31 +208,33 @@ FROM (VALUES
 ) AS v (SCEN, PK, STATUS, DONE)
 JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = v.SCEN;
 
-INSERT INTO APP.T_F_APPROVAL_ACTION (REQUEST_ID, STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTION_COMMENT, INSERT_DATE)
-SELECT r.REQUEST_ID, v.STEP, 'APPROVE', v.BY_USER, v.CMT, v.AT
+-- One row per approval step: Sep and the Base budget fully approved, Oct approved by step 1 only
+INSERT INTO APP.T_F_APPROVAL_STEP_STATE
+    (REQUEST_ID, STEP_ORDER, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTED_AT, STEP_COMMENT)
+SELECT r.REQUEST_ID, v.STEP, v.STATUS, v.ACTION, v.BY_USER, v.AT, v.CMT
 FROM (VALUES
-    ('Actual payroll',   202609::INT, 1, 'hr@example.org',        NULL::TEXT,                  '2026-09-24 09:00:00'::TIMESTAMP),
-    ('Actual payroll',   202609,      2, 'treasurer@example.org', NULL,                        '2026-09-24 15:00:00'),
-    ('Actual payroll',   202609,      3, 'director@example.org',  'Approved',                  '2026-09-25 09:30:00'),
-    ('Actual payroll',   202610,      1, 'hr@example.org',        'Inputs checked',            '2026-10-26 10:00:00'),
-    ('Budget 2027 Base', NULL,        1, 'hr@example.org',        NULL,                        '2026-09-08 11:00:00'),
-    ('Budget 2027 Base', NULL,        2, 'treasurer@example.org', NULL,                        '2026-09-09 11:00:00'),
-    ('Budget 2027 Base', NULL,        3, 'director@example.org',  'Approved as official 2027', '2026-09-10 16:00:00')
-) AS v (SCEN, PK, STEP, BY_USER, CMT, AT)
+    ('Actual payroll',   202609::INT, 1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-24 09:00:00'::TIMESTAMP, NULL::TEXT),
+    ('Actual payroll',   202609,      2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-24 15:00:00', NULL),
+    ('Actual payroll',   202609,      3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-25 09:30:00', 'Approved'),
+    ('Actual payroll',   202610,      1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-10-26 10:00:00', 'Inputs checked'),
+    ('Actual payroll',   202610,      2, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
+    ('Actual payroll',   202610,      3, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
+    ('Budget 2027 Base', NULL,        1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-08 11:00:00', NULL),
+    ('Budget 2027 Base', NULL,        2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-09 11:00:00', NULL),
+    ('Budget 2027 Base', NULL,        3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-10 16:00:00', 'Approved as official 2027')
+) AS v (SCEN, PK, STEP, STATUS, ACTION, BY_USER, AT, CMT)
 JOIN APP.T_D_SCENARIO s          ON s.SCENARIO_NAME = v.SCEN
 JOIN APP.T_F_APPROVAL_REQUEST r  ON r.SCENARIO_ID = s.SCENARIO_ID AND EQUAL_NULL(r.PERIOD_KEY, v.PK);
 
--- B.11 Per-employee checks on the Oct request: HR checked everyone; Treasurer rejected one
-INSERT INTO APP.T_F_APPROVAL_EMPLOYEE_CHECK (REQUEST_ID, STEP_ORDER, EMPLOYEE_ID, CHECK_STATUS, CHECK_COMMENT, CHECKED_BY)
-SELECT r.REQUEST_ID, v.STEP, e.EMPLOYEE_ID, v.STATUS, v.CMT, v.BY_USER
+-- B.11 Per-employee checks on the Oct request (made by step 2, the Treasurer): one checked,
+--      one rejected, one still pending
+INSERT INTO APP.T_F_APPROVAL_EMPLOYEE_CHECK (REQUEST_ID, EMPLOYEE_ID, CHECK_STATUS, CHECK_COMMENT, CHECKED_BY)
+SELECT r.REQUEST_ID, e.EMPLOYEE_ID, v.STATUS, v.CMT, v.BY_USER
 FROM (VALUES
-    (1, 'HR-KH-001', 'CHECKED',  NULL::TEXT,                             'hr@example.org'),
-    (1, 'HR-FR-002', 'CHECKED',  NULL,                                   'hr@example.org'),
-    (1, 'HR-KH-003', 'CHECKED',  NULL,                                   'hr@example.org'),
-    (2, 'HR-KH-001', 'CHECKED',  NULL,                                   'treasurer@example.org'),
-    (2, 'HR-FR-002', 'REJECTED', 'Overtime day not supported by a form', 'treasurer@example.org'),
-    (2, 'HR-KH-003', 'PENDING',  NULL,                                   NULL)
-) AS v (STEP, RC, STATUS, CMT, BY_USER)
+    ('HR-KH-001', 'CHECKED',  NULL::TEXT,                             'treasurer@example.org'),
+    ('HR-FR-002', 'REJECTED', 'Overtime day not supported by a form', 'treasurer@example.org'),
+    ('HR-KH-003', 'PENDING',  NULL,                                   NULL)
+) AS v (RC, STATUS, CMT, BY_USER)
 JOIN APP.T_D_SCENARIO s          ON s.SCENARIO_NAME = 'Actual payroll'
 JOIN APP.T_F_APPROVAL_REQUEST r  ON r.SCENARIO_ID = s.SCENARIO_ID AND r.PERIOD_KEY = 202610
 JOIN APP.T_D_EMPLOYEE e          ON e.RESOURCE_CODE = v.RC;
@@ -336,7 +340,7 @@ SELECT 'APP.T_F_FUND_ALLOCATION',         COUNT(*) FROM APP.T_F_FUND_ALLOCATION 
 SELECT 'APP.T_F_DEPARTMENT_ALLOCATION',   COUNT(*) FROM APP.T_F_DEPARTMENT_ALLOCATION   UNION ALL
 SELECT 'APP.T_F_PAYROLL_ADJUSTMENT',      COUNT(*) FROM APP.T_F_PAYROLL_ADJUSTMENT      UNION ALL
 SELECT 'APP.T_F_APPROVAL_REQUEST',        COUNT(*) FROM APP.T_F_APPROVAL_REQUEST        UNION ALL
-SELECT 'APP.T_F_APPROVAL_ACTION',         COUNT(*) FROM APP.T_F_APPROVAL_ACTION         UNION ALL
+SELECT 'APP.T_F_APPROVAL_STEP_STATE',     COUNT(*) FROM APP.T_F_APPROVAL_STEP_STATE     UNION ALL
 SELECT 'APP.T_F_APPROVAL_EMPLOYEE_CHECK', COUNT(*) FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK UNION ALL
 SELECT 'APP.T_F_CHANGE_LOG',              COUNT(*) FROM APP.T_F_CHANGE_LOG              UNION ALL
 SELECT 'CORE.T_F_PAYROLL_LINE',           COUNT(*) FROM CORE.T_F_PAYROLL_LINE           UNION ALL
@@ -345,7 +349,7 @@ SELECT 'CORE.T_F_COST_ALLOCATION',        COUNT(*) FROM CORE.T_F_COST_ALLOCATION
 -- TAX_BRACKET 5, FX_RATE 4, APPROVAL_STEP 3, APP_USER 5, APP_USER_ROLE 5, SCENARIO 4, EMPLOYEE 5,
 -- EMPLOYEE_CONTRACT 5, SCENARIO_EMPLOYEE 10, SCENARIO_PERIOD 29, PAYROLL_INPUT 10,
 -- FUND_ALLOCATION 4, DEPARTMENT_ALLOCATION 4, PAYROLL_ADJUSTMENT 1, APPROVAL_REQUEST 3,
--- APPROVAL_ACTION 7, APPROVAL_EMPLOYEE_CHECK 6, CHANGE_LOG 1, PAYROLL_LINE 23, COST_ALLOCATION 2
+-- APPROVAL_STEP_STATE 9, APPROVAL_EMPLOYEE_CHECK 3, CHANGE_LOG 1, PAYROLL_LINE 23, COST_ALLOCATION 2
 
 -- C.4 Payroll summary for the dummy employee
 --     Expected Sep: gross 1000.00, net 944.95, employer cost 1045.88

@@ -14,7 +14,7 @@ Rules that apply on every page:
 
 - Every save procedure receives the app user email from Power Apps, checks the user role in T_D_APP_USER_ROLE, sets INSERT_BY / UPDATE_BY to that email, and writes a row to T_F_CHANGE_LOG.
 - Only the open actual period (PERIOD_STATUS = OPEN in T_F_SCENARIO_PERIOD) accepts payroll edits. Finalized periods are read-only.
-- Any edit to an open period that already has approvals writes a RESET to T_F_APPROVAL_ACTION and clears the per-employee checks, so approvers review the changed numbers.
+- Any edit to an open period that already has approvals sets the approved steps back to PENDING in T_F_APPROVAL_STEP_STATE (LAST_ACTION = RESET, logged in T_F_CHANGE_LOG) and clears the changed employees' checks, so approvers review the changed numbers.
 - After an input changes, the procedure calls SP_CALCULATE_PAYROLL, which rewrites that period's rows in T_F_PAYROLL_LINE and T_F_COST_ALLOCATION.
 - Nothing is ever deleted from actual payroll. Employees are deactivated with IS_ACTIVE; closed months are corrected through T_F_PAYROLL_ADJUSTMENT.
 
@@ -84,12 +84,12 @@ The payroll admin works the open month here: variable inputs, exchange rates, op
 | Edit an employee's inputs | – | Update APP.T_F_PAYROLL_INPUT; T_F_CHANGE_LOG; RESET approvals if started; recalculate | SP_SAVE_MONTHLY_INPUT |
 | Exchange rates panel | APP.T_F_SCENARIO_PERIOD (FX_RATE_NBC, FX_RATE_NSSF) | – | – |
 | Save exchange rates | – | Upsert CORE.T_P_FX_RATE (published rate) and update APP.T_F_SCENARIO_PERIOD (applied rate); T_F_CHANGE_LOG; recalculate | SP_SAVE_EXCHANGE_RATE |
-| Create next month's payroll | CORE.T_D_PERIOD (working days), CORE.T_P_FX_RATE, APP.T_D_EMPLOYEE (IS_ACTIVE) | New row in APP.T_F_SCENARIO_PERIOD (OPEN); one empty row per active employee in APP.T_F_PAYROLL_INPUT; allocations copied into APP.T_F_FUND_ALLOCATION and APP.T_F_DEPARTMENT_ALLOCATION; new APP.T_F_APPROVAL_REQUEST; first calculation | SP_OPEN_PAYROLL_PERIOD |
+| Create next month's payroll | CORE.T_D_PERIOD (working days), CORE.T_P_FX_RATE, APP.T_D_EMPLOYEE (IS_ACTIVE) | New row in APP.T_F_SCENARIO_PERIOD (OPEN); one empty row per active employee in APP.T_F_PAYROLL_INPUT; allocations copied into APP.T_F_FUND_ALLOCATION and APP.T_F_DEPARTMENT_ALLOCATION; new APP.T_F_APPROVAL_REQUEST with one PENDING row per step in APP.T_F_APPROVAL_STEP_STATE; first calculation | SP_OPEN_PAYROLL_PERIOD |
 | View Rejected Only | APP.T_F_APPROVAL_EMPLOYEE_CHECK (CHECK_STATUS = REJECTED) | – | – |
 | Approval chain | RPT.V_F_APPROVAL_PROGRESS, sorted by STEP_ORDER | – | – |
-| Approve (step 1) | APP.T_F_APPROVAL_EMPLOYEE_CHECK for step 1 | Row in APP.T_F_APPROVAL_ACTION (APPROVE, with comment); T_F_SCENARIO_PERIOD to IN_APPROVAL | SP_APPROVE_STEP |
-| Undo approval | – | Row in APP.T_F_APPROVAL_ACTION (UNDO) | SP_UNDO_APPROVAL |
-| Treasurer / Director comment boxes | APP.T_F_APPROVAL_ACTION.ACTION_COMMENT for steps 2 and 3 | – | – |
+| Approve (step 1) | RPT.V_F_APPROVAL_PROGRESS (no employee checks needed) | Step 1 to APPROVED in APP.T_F_APPROVAL_STEP_STATE (with comment); T_F_SCENARIO_PERIOD to IN_APPROVAL; T_F_CHANGE_LOG | SP_APPROVE_STEP |
+| Undo approval | – | Step back to PENDING in APP.T_F_APPROVAL_STEP_STATE (LAST_ACTION = UNDO); T_F_CHANGE_LOG | SP_UNDO_APPROVAL |
+| Treasurer / Director comment boxes | RPT.V_F_APPROVAL_PROGRESS.ACTION_COMMENT for steps 2 and 3 | – | – |
 | Add a correction for a closed month | – | Row in APP.T_F_PAYROLL_ADJUSTMENT; recalculate | SP_SAVE_PAYROLL_ADJUSTMENT |
 
 Notes:
@@ -100,22 +100,22 @@ Notes:
 
 ## 5. Approval (payroll)
 
-The second and third approvers check each employee, then approve their step. A step can only be approved once every employee is CHECKED for that step.
+The second approver (the step flagged MANAGES_EMPLOYEE_CHECKS) checks or rejects each employee, then approves the step; it can only be approved once every employee is CHECKED. There is one check per employee per month. The third approver simply approves.
 
 | Action | Reads | Writes | Procedure |
 | --- | --- | --- | --- |
 | Gross compensation summary (current, previous month, 6-month average, budget, forecast) | CORE.V_F_PAYROLL_SUMMARY (actual periods); RPT.V_F_BUDGET_VS_ACTUAL | – | – |
 | KPI and payment summary cards (headcount, bonus + seniority, NSSF, net to bank per chamber, ToS in KHR, FX vs previous month) | CORE.V_F_PAYROLL_SUMMARY; CORE.T_F_PAYROLL_LINE for BONUS and SENIORITY; APP.T_F_SCENARIO_PERIOD for FX | – | – |
 | Employee grid (gross, avg daily cost, bonus + seniority, net, ToS, % vs previous month) | CORE.V_F_PAYROLL_SUMMARY for this and the previous period; CORE.V_D_EMPLOYEE | – | – |
-| Validation buttons per employee | APP.T_F_APPROVAL_EMPLOYEE_CHECK for the user's step | – | – |
+| Validation buttons per employee (step 2 only) | APP.T_F_APPROVAL_EMPLOYEE_CHECK for the month's request | – | – |
 | Check an employee (✓) | – | Upsert APP.T_F_APPROVAL_EMPLOYEE_CHECK (CHECKED); T_F_CHANGE_LOG | SP_SET_EMPLOYEE_CHECK |
 | Reject an employee (✗) with a comment | – | Upsert APP.T_F_APPROVAL_EMPLOYEE_CHECK (REJECTED, CHECK_COMMENT); T_F_CHANGE_LOG | SP_SET_EMPLOYEE_CHECK |
-| Approve All | – | Sets every PENDING check for the user's step to CHECKED | SP_SET_EMPLOYEE_CHECK (bulk) |
+| Approve All (step 2) | – | Sets every PENDING employee check to CHECKED | SP_SET_EMPLOYEE_CHECK (bulk) |
 | Approval chain | RPT.V_F_APPROVAL_PROGRESS | – | – |
-| Approve step | APP.T_F_APPROVAL_EMPLOYEE_CHECK (all CHECKED?) | Row in APP.T_F_APPROVAL_ACTION (APPROVE, comment) | SP_APPROVE_STEP |
-| Reject step | – | Row in APP.T_F_APPROVAL_ACTION (REJECT, comment); T_F_APPROVAL_REQUEST to REJECTED; T_F_SCENARIO_PERIOD back to OPEN | SP_REJECT_STEP |
-| Undo approval | – | Row in APP.T_F_APPROVAL_ACTION (UNDO) | SP_UNDO_APPROVAL |
-| HR / Treasurer comments | APP.T_F_APPROVAL_ACTION.ACTION_COMMENT | – | – |
+| Approve step | APP.T_F_APPROVAL_EMPLOYEE_CHECK (all CHECKED? step 2 only) | Step to APPROVED in APP.T_F_APPROVAL_STEP_STATE (comment); T_F_CHANGE_LOG | SP_APPROVE_STEP |
+| Reject step | – | Step to REJECTED and the previous step back to PENDING (LAST_ACTION = SEND_BACK) in APP.T_F_APPROVAL_STEP_STATE; rejecting step 1 puts T_F_SCENARIO_PERIOD back to OPEN (same request); T_F_CHANGE_LOG | SP_REJECT_STEP |
+| Undo approval | – | Step back to PENDING in APP.T_F_APPROVAL_STEP_STATE (LAST_ACTION = UNDO); T_F_CHANGE_LOG | SP_UNDO_APPROVAL |
+| HR / Treasurer comments | RPT.V_F_APPROVAL_PROGRESS.ACTION_COMMENT | – | – |
 | Process (finalize) | RPT.V_F_APPROVAL_PROGRESS (all steps APPROVED?) | Final SP_CALCULATE_PAYROLL; T_F_SCENARIO_PERIOD to FINALIZED (FINALIZED_AT / BY); T_F_APPROVAL_REQUEST to APPROVED | SP_FINALIZE_PAYROLL |
 
 Notes:
@@ -159,9 +159,9 @@ The same three-step chain as payroll, applied to a whole scenario. When the thir
 | Employee grid (gross, bonus + seniority, net, ToS) | CORE.V_F_PAYROLL_SUMMARY summed over the scenario's 12 months; CORE.V_D_EMPLOYEE and APP.T_D_SCENARIO_EMPLOYEE for names | – | – |
 | Submit for approval (from Budget Input) | – | New APP.T_F_APPROVAL_REQUEST (PERIOD_KEY = NULL); T_D_SCENARIO to IN_APPROVAL | SP_SUBMIT_SCENARIO |
 | Approval chain | RPT.V_F_APPROVAL_PROGRESS | – | – |
-| Approve step | – | Row in APP.T_F_APPROVAL_ACTION (APPROVE) | SP_APPROVE_STEP |
+| Approve step | – | Step to APPROVED in APP.T_F_APPROVAL_STEP_STATE | SP_APPROVE_STEP |
 | Final approval (step 3) | – | T_F_APPROVAL_REQUEST to APPROVED; T_D_SCENARIO to APPROVED and IS_OFFICIAL = TRUE; the previous official scenario for that year set to FALSE; periods LOCKED | SP_APPROVE_STEP |
-| Reject / undo | – | Row in APP.T_F_APPROVAL_ACTION (REJECT or UNDO); on reject T_D_SCENARIO back to REJECTED so it can be edited | SP_REJECT_STEP / SP_UNDO_APPROVAL |
+| Reject / undo | – | Step to REJECTED or back to PENDING in APP.T_F_APPROVAL_STEP_STATE; on reject T_D_SCENARIO back to REJECTED so it can be edited | SP_REJECT_STEP / SP_UNDO_APPROVAL |
 
 Notes:
 
@@ -227,9 +227,9 @@ Notes:
 | SP_CALCULATE_PAYROLL | Called by other procedures, Budget Save | T_F_PAYROLL_LINE, T_F_COST_ALLOCATION |
 | SP_FINALIZE_PAYROLL | Approval (Process) | T_F_SCENARIO_PERIOD, T_F_APPROVAL_REQUEST |
 | SP_SET_EMPLOYEE_CHECK | Approval | T_F_APPROVAL_EMPLOYEE_CHECK |
-| SP_APPROVE_STEP | Monthly Inputs, Approval, Budget Approval | T_F_APPROVAL_ACTION (+ official budget on final step) |
-| SP_REJECT_STEP | Approval, Budget Approval | T_F_APPROVAL_ACTION, request and period / scenario status |
-| SP_UNDO_APPROVAL | Monthly Inputs, Approval, Budget Approval | T_F_APPROVAL_ACTION |
+| SP_APPROVE_STEP | Monthly Inputs, Approval, Budget Approval | T_F_APPROVAL_STEP_STATE (+ official budget on final step) |
+| SP_REJECT_STEP | Approval, Budget Approval | T_F_APPROVAL_STEP_STATE, request and period / scenario status |
+| SP_UNDO_APPROVAL | Monthly Inputs, Approval, Budget Approval | T_F_APPROVAL_STEP_STATE |
 | SP_CREATE_SCENARIO | Budget Input | T_D_SCENARIO, T_F_SCENARIO_PERIOD, T_D_SCENARIO_EMPLOYEE, T_F_PAYROLL_INPUT |
 | SP_SAVE_SCENARIO_EMPLOYEE | Budget Input, Forecast | T_D_SCENARIO_EMPLOYEE |
 | SP_SAVE_PLANNED_HIRE / SP_DELETE_PLANNED_HIRE | Budget Input, Forecast | T_D_EMPLOYEE (planned), T_D_SCENARIO_EMPLOYEE, T_F_PAYROLL_INPUT |

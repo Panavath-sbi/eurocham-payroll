@@ -6,6 +6,8 @@
    HISTORY
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
+   2026-10-02  V_F_APPROVAL_EVENT reads the approval history from APP.T_F_CHANGE_LOG
+               (APP.T_F_APPROVAL_ACTION was dropped in V1.4.0).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
    ===================================================================================== */
 
@@ -91,17 +93,18 @@ JOIN CORE.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
 GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID;
 
 CREATE OR REPLACE VIEW CORE.V_F_APPROVAL_EVENT
-COMMENT = 'Grain: one row per approval action, with the scenario and period it relates to.'
+COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log, with the scenario and period it relates to.'
 AS
 SELECT
-    a.ACTION_ID,
-    a.REQUEST_ID,
+    c.CHANGE_ID                      AS ACTION_ID,
+    c.RECORD_KEY:REQUEST_ID::INT     AS REQUEST_ID,
     r.SCENARIO_ID,
     r.PERIOD_KEY,
-    a.STEP_ORDER,
-    a.ACTION_TYPE,
-    a.ACTED_BY,
-    a.INSERT_DATE AS ACTED_AT,
-    a.ACTION_COMMENT
-FROM APP.T_F_APPROVAL_ACTION a
-JOIN APP.T_F_APPROVAL_REQUEST r ON r.REQUEST_ID = a.REQUEST_ID;
+    c.RECORD_KEY:STEP_ORDER::INT     AS STEP_ORDER,
+    c.NEW_VALUES:ACTION_TYPE::TEXT   AS ACTION_TYPE,
+    c.CHANGED_BY                     AS ACTED_BY,
+    c.INSERT_DATE                    AS ACTED_AT,
+    c.NEW_VALUES:COMMENT::TEXT       AS ACTION_COMMENT
+FROM APP.T_F_CHANGE_LOG c
+JOIN APP.T_F_APPROVAL_REQUEST r ON r.REQUEST_ID = c.RECORD_KEY:REQUEST_ID::INT
+WHERE c.TABLE_NAME = 'APP.T_F_APPROVAL_STEP_STATE';

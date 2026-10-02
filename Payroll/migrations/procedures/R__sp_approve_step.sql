@@ -6,6 +6,9 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  Writes the step's state to APP.T_F_APPROVAL_STEP_STATE (no more action log).
+               Only the step flagged MANAGES_EMPLOYEE_CHECKS (step 2) needs every employee
+               CHECKED; the other steps are a plain approve.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -21,7 +24,8 @@
    ===================================================================================== */
 
 /* Rules: the request is IN_PROGRESS; the step is the next one in order; the user holds the
-   step's APPROVER_ROLE. Actual payroll: every employee must be CHECKED for this step.
+   step's APPROVER_ROLE. Actual payroll: if the step manages employee checks
+   (MANAGES_EMPLOYEE_CHECKS, step 2), every employee must be CHECKED first.
    Final step of a BUDGET request: the scenario becomes APPROVED and the official budget of
    its year (the previous official budget of that year loses the flag); its periods lock.
    Final step of an ACTUAL request: the month is ready for SP_FINALIZE_PAYROLL. */
@@ -43,6 +47,7 @@ DECLARE
     v_role        TEXT;
     v_step_status TEXT;
     v_is_next     INT;
+    v_checks      INT;
     v_allowed     INT;
     v_period_status TEXT;
     v_unchecked   INT DEFAULT 0;
@@ -61,8 +66,8 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'This approval request is ' || v_req_status || '.');
     END IF;
 
-    SELECT MAX(APPROVER_ROLE), MAX(STEP_STATUS), MAX(IFF(IS_NEXT_STEP, 1, 0))
-      INTO :v_role, :v_step_status, :v_is_next
+    SELECT MAX(APPROVER_ROLE), MAX(STEP_STATUS), MAX(IFF(IS_NEXT_STEP, 1, 0)), MAX(IFF(MANAGES_EMPLOYEE_CHECKS, 1, 0))
+      INTO :v_role, :v_step_status, :v_is_next, :v_checks
     FROM RPT.V_F_APPROVAL_PROGRESS
     WHERE REQUEST_ID = :P_REQUEST_ID AND STEP_ORDER = :P_STEP_ORDER;
     IF (v_role IS NULL) THEN
@@ -93,14 +98,17 @@ BEGIN
             RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || v_pk || ' is ' || v_period_status || '.');
         END IF;
 
-        SELECT COUNT(*) INTO :v_unchecked
-        FROM APP.T_F_PAYROLL_INPUT i
-        LEFT JOIN APP.T_F_APPROVAL_EMPLOYEE_CHECK c
-               ON c.REQUEST_ID = :P_REQUEST_ID AND c.STEP_ORDER = :P_STEP_ORDER AND c.EMPLOYEE_ID = i.EMPLOYEE_ID
-        WHERE i.SCENARIO_ID = :v_scen AND i.PERIOD_KEY = :v_pk AND i.INCLUDE_IN_PAYROLL
-          AND COALESCE(c.CHECK_STATUS, 'PENDING') <> 'CHECKED';
-        IF (v_unchecked > 0) THEN
-            RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_unchecked || ' employee(s) are not checked yet for this step.');
+        -- Only the step that manages employee checks needs everyone CHECKED
+        IF (v_checks = 1) THEN
+            SELECT COUNT(*) INTO :v_unchecked
+            FROM APP.T_F_PAYROLL_INPUT i
+            LEFT JOIN APP.T_F_APPROVAL_EMPLOYEE_CHECK c
+                   ON c.REQUEST_ID = :P_REQUEST_ID AND c.EMPLOYEE_ID = i.EMPLOYEE_ID
+            WHERE i.SCENARIO_ID = :v_scen AND i.PERIOD_KEY = :v_pk AND i.INCLUDE_IN_PAYROLL
+              AND COALESCE(c.CHECK_STATUS, 'PENDING') <> 'CHECKED';
+            IF (v_unchecked > 0) THEN
+                RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_unchecked || ' employee(s) are not checked yet for this step.');
+            END IF;
         END IF;
     ELSE
         IF (v_scen_status <> 'IN_APPROVAL') THEN
@@ -110,8 +118,16 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    INSERT INTO APP.T_F_APPROVAL_ACTION (REQUEST_ID, STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTION_COMMENT, INSERT_BY, UPDATE_BY)
-    SELECT :P_REQUEST_ID, :P_STEP_ORDER, 'APPROVE', :P_USER_EMAIL, :P_COMMENT, :P_USER_EMAIL, :P_USER_EMAIL;
+    MERGE INTO APP.T_F_APPROVAL_STEP_STATE t
+    USING (SELECT :P_REQUEST_ID AS REQUEST_ID, :P_STEP_ORDER AS STEP_ORDER) s
+       ON t.REQUEST_ID = s.REQUEST_ID AND t.STEP_ORDER = s.STEP_ORDER
+    WHEN MATCHED THEN UPDATE SET
+        STEP_STATUS = 'APPROVED', LAST_ACTION = 'APPROVE', ACTED_BY = :P_USER_EMAIL, ACTED_AT = CURRENT_TIMESTAMP,
+        STEP_COMMENT = :P_COMMENT, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+    WHEN NOT MATCHED THEN INSERT
+        (REQUEST_ID, STEP_ORDER, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTED_AT, STEP_COMMENT, INSERT_BY, UPDATE_BY)
+    VALUES
+        (s.REQUEST_ID, s.STEP_ORDER, 'APPROVED', 'APPROVE', :P_USER_EMAIL, CURRENT_TIMESTAMP, :P_COMMENT, :P_USER_EMAIL, :P_USER_EMAIL);
 
     IF (v_type = 'ACTUAL') THEN
         UPDATE APP.T_F_SCENARIO_PERIOD
@@ -140,7 +156,10 @@ BEGIN
     END IF;
 
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
-    SELECT 'APP.T_F_APPROVAL_ACTION', OBJECT_CONSTRUCT('REQUEST_ID', :P_REQUEST_ID, 'STEP_ORDER', :P_STEP_ORDER), 'INSERT', NULL, OBJECT_CONSTRUCT('ACTION_TYPE', 'APPROVE', 'COMMENT', :P_COMMENT), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
+    SELECT 'APP.T_F_APPROVAL_STEP_STATE', OBJECT_CONSTRUCT('REQUEST_ID', :P_REQUEST_ID, 'STEP_ORDER', :P_STEP_ORDER), 'UPDATE',
+           OBJECT_CONSTRUCT('STEP_STATUS', :v_step_status),
+           OBJECT_CONSTRUCT('ACTION_TYPE', 'APPROVE', 'STEP_STATUS', 'APPROVED', 'COMMENT', :P_COMMENT),
+           :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     COMMIT;
     IF (v_type = 'BUDGET' AND P_STEP_ORDER = v_last_step) THEN

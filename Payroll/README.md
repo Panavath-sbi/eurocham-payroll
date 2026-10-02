@@ -43,8 +43,10 @@ Rules:
 4. `tables/V1.0.3__create_tables_core_facts.sql` – fact tables
 5. `data/V1.1.0__load_reference_data.sql` – periods, pay components, tax and NSSF parameters, approval chain
 6. `tables/V1.2.0__approval_action_send_back.sql` – column comments for the step-back approval flow
-7. `views/R__views_core.sql`, then `views/R__views_rpt.sql`
-8. `procedures/R__sp_*.sql` – any order (a procedure only checks the objects it uses when it runs)
+7. `tables/V1.3.0__create_signature_table.sql` – signature images for Power BI
+8. `tables/V1.4.0__approval_step_state.sql` – one state row per approval step (replaces the action log); one employee check per employee (step 2)
+9. `views/R__views_core.sql`, then `views/R__views_rpt.sql`, then `views/R__views_pbi.sql`
+10. `procedures/R__sp_*.sql` – any order (a procedure only checks the objects it uses when it runs)
 
 schemachange reads all subfolders of `migrations/`. It runs `V` files by version number,
 then `R` files by file name, so the folders can be reorganised freely.

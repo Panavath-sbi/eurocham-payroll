@@ -7,6 +7,7 @@
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
+   2026-10-02  Also creates the month's approval step rows (APP.T_F_APPROVAL_STEP_STATE, PENDING).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -29,7 +30,8 @@
    Checks: no other actual period open; the previous month is finalized (unless this is
    the very first period); working days and FX rates are available.
    Creates the scenario period, one input row per active employee with a valid contract,
-   copies last month's fund and department splits, opens an approval request and runs
+   copies last month's fund and department splits, opens an approval request (with one
+   PENDING row per approval step) and runs
    the first calculation.
    ===================================================================================== */
 USE DATABASE PAYROLL_DB;
@@ -152,6 +154,20 @@ BEGIN
 
     INSERT INTO APP.T_F_APPROVAL_REQUEST (SCENARIO_ID, PERIOD_KEY, REQUEST_STATUS, INSERT_BY, UPDATE_BY)
     SELECT :v_scen, :P_PERIOD_KEY, 'IN_PROGRESS', :P_USER_EMAIL, :P_USER_EMAIL;
+
+    -- One PENDING row per approval step in force for this request
+    INSERT INTO APP.T_F_APPROVAL_STEP_STATE (REQUEST_ID, STEP_ORDER, STEP_STATUS, INSERT_BY, UPDATE_BY)
+    SELECT DISTINCT r.REQUEST_ID, st.STEP_ORDER, 'PENDING', :P_USER_EMAIL, :P_USER_EMAIL
+    FROM APP.T_F_APPROVAL_REQUEST r
+    JOIN APP.T_D_SCENARIO sc ON sc.SCENARIO_ID = r.SCENARIO_ID
+    JOIN CORE.T_P_APPROVAL_STEP st
+      ON st.IS_ACTIVE
+     AND st.APPLIES_TO IN ('ALL', sc.SCENARIO_TYPE)
+     AND COALESCE(r.PERIOD_KEY, sc.FISCAL_YEAR * 100 + 1)
+         BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
+    WHERE r.SCENARIO_ID = :v_scen AND r.PERIOD_KEY = :P_PERIOD_KEY AND r.REQUEST_STATUS = 'IN_PROGRESS'
+      AND NOT EXISTS (SELECT 1 FROM APP.T_F_APPROVAL_STEP_STATE x
+                      WHERE x.REQUEST_ID = r.REQUEST_ID AND x.STEP_ORDER = st.STEP_ORDER);
 
     CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :v_scen, :P_PERIOD_KEY);
 

@@ -9,6 +9,7 @@
    -------
    2026-09-29  Initial version.
    2026-09-29  Reject now sends back one step (A9-A13); deactivation is immediate (C8, C10).
+   2026-10-02  Section A rewritten: only step 2 checks employees; steps 1 and 3 are a plain approve.
    ===================================================================================== */
 
 SET ACTUAL_ID = (SELECT SCENARIO_ID FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL');
@@ -24,30 +25,33 @@ SET NOV_REQ   = (SELECT MAX(REQUEST_ID) FROM APP.T_F_APPROVAL_REQUEST
    A. APPROVALS (November payroll)
    ===================================================================================== */
 
--- A1. Expected ERROR: "3 employee(s) are not checked yet for this step."
-CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 1, NULL);
-
--- A2. Expected ERROR: "Only a user with role HR_MANAGER can act on step 1."
-CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 1, NULL, 'CHECKED', NULL);
-
--- A3. Approve All for step 1. Expected OK: "3 employee check(s) set to CHECKED."
-CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', $NOV_REQ, 1, NULL, 'CHECKED', NULL);
-
--- A4. Expected ERROR: "Only a user with role TREASURER can act on step 2."
-CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 2, NULL);
-
--- A5. Expected OK: "Step 1 approved."
+-- A1. Step 1 needs no employee checks. Expected OK: "Step 1 approved."
 CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 1, 'Inputs look right');
 
--- A6. Reject Martin without a comment. Expected ERROR: "A comment is required when rejecting an employee."
+-- A2. Only step 2 checks employees. Expected ERROR: "Step 1 does not use per-employee checks."
+CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', $NOV_REQ, 1, NULL, 'CHECKED', NULL);
+
+-- A3. Expected ERROR: "Only a user with role TREASURER can act on step 2."
+CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', $NOV_REQ, 2, NULL, 'CHECKED', NULL);
+
+-- A4. Reject Martin without a comment. Expected ERROR: "A comment is required when rejecting an employee."
 SET MARTIN_LIST = (SELECT '[' || $MARTIN_ID || ']');
 CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, $MARTIN_LIST, 'REJECTED', NULL);
 
--- A7. Expected OK: "1 employee check(s) set to REJECTED."
+-- A5. Expected OK: "1 employee check(s) set to REJECTED."
 CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, $MARTIN_LIST, 'REJECTED', 'Bank account changed?');
 
--- A8. Expected ERROR: "3 employee(s) are not checked yet for this step."
+-- A6. Approve All checks the two pending employees; Martin stays REJECTED.
+--     Expected OK: "2 employee check(s) set to CHECKED."
+CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, NULL, 'CHECKED', NULL);
+
+-- A7. Expected ERROR: "1 employee(s) are not checked yet for this step."
 CALL APP.SP_APPROVE_STEP('treasurer@example.org', $NOV_REQ, 2, NULL);
+
+-- A8. One check per employee: Expected 3 rows, Martin REJECTED, Sokha and Dara CHECKED
+SELECT e.RESOURCE_CODE, c.CHECK_STATUS, c.CHECK_COMMENT, c.CHECKED_BY
+FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK c JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = c.EMPLOYEE_ID
+WHERE c.REQUEST_ID = $NOV_REQ ORDER BY e.RESOURCE_CODE;
 
 -- A9. Undo step 1, then approve it again. Expected OK: "Approval of step 1 undone." then "Step 1 approved."
 CALL APP.SP_UNDO_APPROVAL('hr@example.org', $NOV_REQ, 1);
@@ -56,8 +60,8 @@ CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 1, 'Approved again');
 -- A10. The treasurer rejects step 2. Expected OK: "Sent back to step 1 for re-checking."
 CALL APP.SP_REJECT_STEP('treasurer@example.org', $NOV_REQ, 2, 'Martin overtime looks wrong, please re-check');
 
--- A11. Expected: step 1 PENDING and next (latest action SEND_BACK), step 2 REJECTED
-SELECT STEP_ORDER, STEP_TITLE, STEP_STATUS, ACTED_BY, ACTION_COMMENT, IS_NEXT_STEP
+-- A11. Expected: 3 rows; step 1 PENDING (LAST_ACTION SEND_BACK) and next; step 2 REJECTED; step 3 PENDING
+SELECT STEP_ORDER, STEP_TITLE, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTION_COMMENT, IS_NEXT_STEP
 FROM RPT.V_F_APPROVAL_PROGRESS WHERE REQUEST_ID = $NOV_REQ ORDER BY STEP_ORDER;
 
 -- A12. HR rejects step 1 too. Expected OK: "Sent back to the preparer. The payroll month is open for corrections."
@@ -68,6 +72,11 @@ SELECT r.REQUEST_ID, r.REQUEST_STATUS, p.PERIOD_STATUS
 FROM APP.T_F_APPROVAL_REQUEST r
 JOIN APP.T_F_SCENARIO_PERIOD p ON p.SCENARIO_ID = r.SCENARIO_ID AND p.PERIOD_KEY = r.PERIOD_KEY
 WHERE r.REQUEST_ID = $NOV_REQ;
+
+-- A14. History is still there, read from the change log. Expected (oldest first): APPROVE 1,
+--      UNDO 1, APPROVE 1, REJECT 2, SEND_BACK 1, REJECT 1
+SELECT STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTED_AT, ACTION_COMMENT
+FROM CORE.V_F_APPROVAL_EVENT WHERE REQUEST_ID = $NOV_REQ ORDER BY ACTION_ID;
 
 
 /* =====================================================================================
