@@ -6,6 +6,7 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -49,8 +50,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
     END IF;

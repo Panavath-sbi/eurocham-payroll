@@ -6,6 +6,9 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: rates stored on APP.T_D_PERIOD (FX_RATE_NBC, FX_RATE_NSSF) instead of
+               T_P_FX_RATE; one role per user.
+   2026-10-02  Fix: v_old_nssf was declared twice.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -20,7 +23,7 @@
    * Validations run before any write; writes run in one transaction.
    ===================================================================================== */
 
-/* Stores the published rates in CORE.T_P_FX_RATE. If the month is the open payroll
+/* Stores the published rates on the month in APP.T_D_PERIOD. If the month is the open payroll
    month, the applied rates change too: approvals reset and the month is recalculated.
    A finalized month is refused. Role: PAYROLL_ADMIN. */
 USE DATABASE PAYROLL_DB;
@@ -42,8 +45,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
     END IF;
@@ -51,7 +53,7 @@ BEGIN
     IF (P_FX_RATE_NBC IS NULL OR P_FX_RATE_NSSF IS NULL OR P_FX_RATE_NBC <= 0 OR P_FX_RATE_NSSF <= 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Both rates must be greater than 0.');
     END IF;
-    SELECT COUNT(*) INTO :v_in_cal FROM CORE.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
+    SELECT COUNT(*) INTO :v_in_cal FROM APP.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_in_cal = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || P_PERIOD_KEY || ' is not in the calendar.');
     END IF;
@@ -64,22 +66,18 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || P_PERIOD_KEY || ' is finalized; its rates cannot change.');
     END IF;
 
-    SELECT MAX(IFF(RATE_TYPE = 'NBC', EXCHANGE_RATE, NULL)), MAX(IFF(RATE_TYPE = 'NSSF', EXCHANGE_RATE, NULL))
-      INTO :v_old_nbc, :v_old_nssf
-    FROM CORE.T_P_FX_RATE
-    WHERE PERIOD_KEY = :P_PERIOD_KEY AND FROM_CURRENCY = 'USD' AND TO_CURRENCY = 'KHR';
+    SELECT MAX(FX_RATE_NBC), MAX(FX_RATE_NSSF) INTO :v_old_nbc, :v_old_nssf
+    FROM APP.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
 
     BEGIN TRANSACTION;
 
-    MERGE INTO CORE.T_P_FX_RATE t
-    USING (SELECT 'NBC' AS RATE_TYPE, :P_FX_RATE_NBC AS RATE UNION ALL SELECT 'NSSF', :P_FX_RATE_NSSF) s
-       ON t.PERIOD_KEY = :P_PERIOD_KEY AND t.RATE_TYPE = s.RATE_TYPE AND t.FROM_CURRENCY = 'USD' AND t.TO_CURRENCY = 'KHR'
-    WHEN MATCHED THEN UPDATE SET EXCHANGE_RATE = s.RATE, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-    WHEN NOT MATCHED THEN INSERT (PERIOD_KEY, RATE_TYPE, FROM_CURRENCY, TO_CURRENCY, EXCHANGE_RATE, INSERT_BY, UPDATE_BY)
-        VALUES (:P_PERIOD_KEY, s.RATE_TYPE, 'USD', 'KHR', s.RATE, :P_USER_EMAIL, :P_USER_EMAIL);
+    UPDATE APP.T_D_PERIOD
+    SET FX_RATE_NBC = :P_FX_RATE_NBC, FX_RATE_NSSF = :P_FX_RATE_NSSF,
+        UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+    WHERE PERIOD_KEY = :P_PERIOD_KEY;
 
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
-    SELECT 'CORE.T_P_FX_RATE', OBJECT_CONSTRUCT('PERIOD_KEY', :P_PERIOD_KEY), 'UPDATE', OBJECT_CONSTRUCT('NBC', :v_old_nbc, 'NSSF', :v_old_nssf), OBJECT_CONSTRUCT('NBC', :P_FX_RATE_NBC, 'NSSF', :P_FX_RATE_NSSF), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
+    SELECT 'APP.T_D_PERIOD', OBJECT_CONSTRUCT('PERIOD_KEY', :P_PERIOD_KEY), 'UPDATE', OBJECT_CONSTRUCT('FX_RATE_NBC', :v_old_nbc, 'FX_RATE_NSSF', :v_old_nssf), OBJECT_CONSTRUCT('FX_RATE_NBC', :P_FX_RATE_NBC, 'FX_RATE_NSSF', :P_FX_RATE_NSSF), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     IF (v_status = 'OPEN' OR v_status = 'IN_APPROVAL') THEN
         UPDATE APP.T_F_SCENARIO_PERIOD

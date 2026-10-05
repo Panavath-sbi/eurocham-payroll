@@ -7,6 +7,9 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  Also creates the request's approval step rows (APP.T_F_APPROVAL_STEP_STATE, PENDING).
+   2026-10-02  V1.5.0: no request; the budget's approval rows (APP.T_F_APPROVAL, period 0)
+               are created PENDING, replacing those of an earlier, rejected submission
+               (its history stays in T_F_CHANGE_LOG); CORE -> APP; one role per user.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -21,8 +24,9 @@
    * Validations run before any write; writes run in one transaction.
    ===================================================================================== */
 
-/* The scenario must be a DRAFT or REJECTED budget. It is recalculated, an approval request
-   is opened and the scenario becomes IN_APPROVAL (locked for editing).
+/* The scenario must be a DRAFT or REJECTED budget. It is recalculated, its approval
+   starts (one PENDING row per approval step, period 0) and the scenario becomes
+   IN_APPROVAL (locked for editing).
    Roles: PAYROLL_ADMIN or BUDGET_EDITOR. */
 
 USE DATABASE PAYROLL_DB;
@@ -43,8 +47,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
     END IF;
@@ -77,22 +80,17 @@ BEGIN
         CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :P_SCENARIO_ID, :v_pk);
     END FOR;
 
-    INSERT INTO APP.T_F_APPROVAL_REQUEST (SCENARIO_ID, PERIOD_KEY, REQUEST_STATUS, INSERT_BY, UPDATE_BY)
-    SELECT :P_SCENARIO_ID, NULL, 'IN_PROGRESS', :P_USER_EMAIL, :P_USER_EMAIL;
+    -- The approval starts over: one PENDING row per approval step in force for the budget year
+    DELETE FROM APP.T_F_APPROVAL WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = 0;
 
-    -- One PENDING row per approval step in force for this request
-    INSERT INTO APP.T_F_APPROVAL_STEP_STATE (REQUEST_ID, STEP_ORDER, STEP_STATUS, INSERT_BY, UPDATE_BY)
-    SELECT DISTINCT r.REQUEST_ID, st.STEP_ORDER, 'PENDING', :P_USER_EMAIL, :P_USER_EMAIL
-    FROM APP.T_F_APPROVAL_REQUEST r
-    JOIN APP.T_D_SCENARIO sc ON sc.SCENARIO_ID = r.SCENARIO_ID
-    JOIN CORE.T_P_APPROVAL_STEP st
+    INSERT INTO APP.T_F_APPROVAL (SCENARIO_ID, PERIOD_KEY, STEP_ORDER, STEP_STATUS, INSERT_BY, UPDATE_BY)
+    SELECT DISTINCT sc.SCENARIO_ID, 0, st.STEP_ORDER, 'PENDING', :P_USER_EMAIL, :P_USER_EMAIL
+    FROM APP.T_D_SCENARIO sc
+    JOIN APP.T_P_APPROVAL_STEP st
       ON st.IS_ACTIVE
      AND st.APPLIES_TO IN ('ALL', sc.SCENARIO_TYPE)
-     AND COALESCE(r.PERIOD_KEY, sc.FISCAL_YEAR * 100 + 1)
-         BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
-    WHERE r.SCENARIO_ID = :P_SCENARIO_ID AND r.PERIOD_KEY IS NULL AND r.REQUEST_STATUS = 'IN_PROGRESS'
-      AND NOT EXISTS (SELECT 1 FROM APP.T_F_APPROVAL_STEP_STATE x
-                      WHERE x.REQUEST_ID = r.REQUEST_ID AND x.STEP_ORDER = st.STEP_ORDER);
+     AND sc.FISCAL_YEAR * 100 + 1 BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
+    WHERE sc.SCENARIO_ID = :P_SCENARIO_ID;
 
     UPDATE APP.T_D_SCENARIO
     SET SCENARIO_STATUS = 'IN_APPROVAL', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL

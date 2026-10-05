@@ -10,6 +10,9 @@
    2026-09-29  Initial version.
    2026-09-29  Reject now sends back one step (A9-A13); deactivation is immediate (C8, C10).
    2026-10-02  Section A rewritten: only step 2 checks employees; steps 1 and 3 are a plain approve.
+   2026-10-02  V1.5.0: approval procedures take scenario + month (no request id; 0 for a
+               budget); checks read from T_F_PAYROLL_INPUT; one role per user (B5, B6);
+               payroll adjustment test removed (old C9).
    ===================================================================================== */
 
 SET ACTUAL_ID = (SELECT SCENARIO_ID FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL');
@@ -17,8 +20,6 @@ SET GROWTH_ID = (SELECT SCENARIO_ID FROM APP.T_D_SCENARIO WHERE SCENARIO_NAME = 
 SET SOKHA_ID  = (SELECT EMPLOYEE_ID FROM APP.T_D_EMPLOYEE WHERE RESOURCE_CODE = 'HR-KH-001');
 SET MARTIN_ID = (SELECT EMPLOYEE_ID FROM APP.T_D_EMPLOYEE WHERE RESOURCE_CODE = 'HR-FR-002');
 SET DARA_ID   = (SELECT EMPLOYEE_ID FROM APP.T_D_EMPLOYEE WHERE RESOURCE_CODE = 'HR-KH-003');
-SET NOV_REQ   = (SELECT MAX(REQUEST_ID) FROM APP.T_F_APPROVAL_REQUEST
-                 WHERE SCENARIO_ID = $ACTUAL_ID AND PERIOD_KEY = 202611 AND REQUEST_STATUS = 'IN_PROGRESS');
 
 
 /* =====================================================================================
@@ -26,57 +27,55 @@ SET NOV_REQ   = (SELECT MAX(REQUEST_ID) FROM APP.T_F_APPROVAL_REQUEST
    ===================================================================================== */
 
 -- A1. Step 1 needs no employee checks. Expected OK: "Step 1 approved."
-CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 1, 'Inputs look right');
+CALL APP.SP_APPROVE_STEP('hr@example.org', $ACTUAL_ID, 202611, 1, 'Inputs look right');
 
 -- A2. Only step 2 checks employees. Expected ERROR: "Step 1 does not use per-employee checks."
-CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', $NOV_REQ, 1, NULL, 'CHECKED', NULL);
+CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', 202611, 1, NULL, 'CHECKED', NULL);
 
 -- A3. Expected ERROR: "Only a user with role TREASURER can act on step 2."
-CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', $NOV_REQ, 2, NULL, 'CHECKED', NULL);
+CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', 202611, 2, NULL, 'CHECKED', NULL);
 
 -- A4. Reject Martin without a comment. Expected ERROR: "A comment is required when rejecting an employee."
 SET MARTIN_LIST = (SELECT '[' || $MARTIN_ID || ']');
-CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, $MARTIN_LIST, 'REJECTED', NULL);
+CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', 202611, 2, $MARTIN_LIST, 'REJECTED', NULL);
 
 -- A5. Expected OK: "1 employee check(s) set to REJECTED."
-CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, $MARTIN_LIST, 'REJECTED', 'Bank account changed?');
+CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', 202611, 2, $MARTIN_LIST, 'REJECTED', 'Bank account changed?');
 
 -- A6. Approve All checks the two pending employees; Martin stays REJECTED.
 --     Expected OK: "2 employee check(s) set to CHECKED."
-CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', $NOV_REQ, 2, NULL, 'CHECKED', NULL);
+CALL APP.SP_SET_EMPLOYEE_CHECK('treasurer@example.org', 202611, 2, NULL, 'CHECKED', NULL);
 
 -- A7. Expected ERROR: "1 employee(s) are not checked yet for this step."
-CALL APP.SP_APPROVE_STEP('treasurer@example.org', $NOV_REQ, 2, NULL);
+CALL APP.SP_APPROVE_STEP('treasurer@example.org', $ACTUAL_ID, 202611, 2, NULL);
 
--- A8. One check per employee: Expected 3 rows, Martin REJECTED, Sokha and Dara CHECKED
-SELECT e.RESOURCE_CODE, c.CHECK_STATUS, c.CHECK_COMMENT, c.CHECKED_BY
-FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK c JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = c.EMPLOYEE_ID
-WHERE c.REQUEST_ID = $NOV_REQ ORDER BY e.RESOURCE_CODE;
+-- A8. Checks on the November input rows. Expected 3 rows: Martin REJECTED, Sokha and Dara CHECKED
+SELECT e.RESOURCE_CODE, i.CHECK_STATUS, i.CHECK_COMMENT, i.CHECKED_BY
+FROM APP.T_F_PAYROLL_INPUT i JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = i.EMPLOYEE_ID
+WHERE i.SCENARIO_ID = $ACTUAL_ID AND i.PERIOD_KEY = 202611 ORDER BY e.RESOURCE_CODE;
 
 -- A9. Undo step 1, then approve it again. Expected OK: "Approval of step 1 undone." then "Step 1 approved."
-CALL APP.SP_UNDO_APPROVAL('hr@example.org', $NOV_REQ, 1);
-CALL APP.SP_APPROVE_STEP('hr@example.org', $NOV_REQ, 1, 'Approved again');
+CALL APP.SP_UNDO_APPROVAL('hr@example.org', $ACTUAL_ID, 202611, 1);
+CALL APP.SP_APPROVE_STEP('hr@example.org', $ACTUAL_ID, 202611, 1, 'Approved again');
 
 -- A10. The treasurer rejects step 2. Expected OK: "Sent back to step 1 for re-checking."
-CALL APP.SP_REJECT_STEP('treasurer@example.org', $NOV_REQ, 2, 'Martin overtime looks wrong, please re-check');
+CALL APP.SP_REJECT_STEP('treasurer@example.org', $ACTUAL_ID, 202611, 2, 'Martin overtime looks wrong, please re-check');
 
 -- A11. Expected: 3 rows; step 1 PENDING (LAST_ACTION SEND_BACK) and next; step 2 REJECTED; step 3 PENDING
-SELECT STEP_ORDER, STEP_TITLE, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTION_COMMENT, IS_NEXT_STEP
-FROM RPT.V_F_APPROVAL_PROGRESS WHERE REQUEST_ID = $NOV_REQ ORDER BY STEP_ORDER;
+SELECT STEP_ORDER, STEP_TITLE, STEP_STATUS, LAST_ACTION, ACTED_BY, STEP_COMMENT, IS_NEXT_STEP
+FROM RPT.V_F_APPROVAL_PROGRESS WHERE SCENARIO_ID = $ACTUAL_ID AND PERIOD_KEY = 202611 ORDER BY STEP_ORDER;
 
 -- A12. HR rejects step 1 too. Expected OK: "Sent back to the preparer. The payroll month is open for corrections."
-CALL APP.SP_REJECT_STEP('hr@example.org', $NOV_REQ, 1, 'Needs a correction to Martin overtime');
+CALL APP.SP_REJECT_STEP('hr@example.org', $ACTUAL_ID, 202611, 1, 'Needs a correction to Martin overtime');
 
--- A13. Expected: the same request is still IN_PROGRESS and November is OPEN
-SELECT r.REQUEST_ID, r.REQUEST_STATUS, p.PERIOD_STATUS
-FROM APP.T_F_APPROVAL_REQUEST r
-JOIN APP.T_F_SCENARIO_PERIOD p ON p.SCENARIO_ID = r.SCENARIO_ID AND p.PERIOD_KEY = r.PERIOD_KEY
-WHERE r.REQUEST_ID = $NOV_REQ;
+-- A13. Expected: November is OPEN (APPROVAL_STATUS OPEN, IS_IN_PROGRESS TRUE); step 1 REJECTED and next
+SELECT STEP_ORDER, APPROVAL_STATUS, IS_IN_PROGRESS, STEP_STATUS, IS_NEXT_STEP
+FROM RPT.V_F_APPROVAL_PROGRESS WHERE SCENARIO_ID = $ACTUAL_ID AND PERIOD_KEY = 202611 ORDER BY STEP_ORDER;
 
 -- A14. History is still there, read from the change log. Expected (oldest first): APPROVE 1,
 --      UNDO 1, APPROVE 1, REJECT 2, SEND_BACK 1, REJECT 1
 SELECT STEP_ORDER, ACTION_TYPE, ACTED_BY, ACTED_AT, ACTION_COMMENT
-FROM CORE.V_F_APPROVAL_EVENT WHERE REQUEST_ID = $NOV_REQ ORDER BY ACTION_ID;
+FROM RPT.V_F_APPROVAL_EVENT WHERE SCENARIO_ID = $ACTUAL_ID AND PERIOD_KEY = 202611 ORDER BY ACTION_ID;
 
 
 /* =====================================================================================
@@ -99,13 +98,21 @@ CALL APP.SP_SAVE_WORKING_DAYS('admin@example.org', 'ACTUAL', '[{"period_key": 20
 CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org',
     '[{"step_order": 2, "step_title": "Finance Treasurer", "approver_email": "treasurer2@example.org", "approver_name": "New Treasurer"}]');
 
--- B6. Expected: only treasurer2@example.org holds TREASURER; step 2 has a new version titled "Finance Treasurer"
-SELECT USER_EMAIL, ROLE_CODE FROM APP.T_D_APP_USER_ROLE ORDER BY ROLE_CODE, USER_EMAIL;
-SELECT STEP_ORDER, STEP_TITLE, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY FROM CORE.T_P_APPROVAL_STEP ORDER BY STEP_ORDER, VALID_FROM_PERIOD_KEY;
+-- B5b. One role per user. Expected ERROR: "The same person cannot be the approver of two steps (one role per user)."
+CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org',
+    '[{"step_order": 1, "approver_email": "hr@example.org"}, {"step_order": 3, "approver_email": "hr@example.org"}]');
+
+-- B5c. Expected ERROR: "You cannot make yourself an approver: you would lose your payroll admin role (one role per user)."
+CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org', '[{"step_order": 1, "approver_email": "admin@example.org"}]');
+
+-- B6. Expected: treasurer2@example.org is TREASURER, treasurer@example.org is now VIEWER (one role
+--     per user); step 2 has a new version titled "Finance Treasurer"
+SELECT USER_EMAIL, DISPLAY_NAME, ROLE_CODE FROM APP.T_D_APP_USER ORDER BY ROLE_CODE, USER_EMAIL;
+SELECT STEP_ORDER, STEP_TITLE, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY FROM APP.T_P_APPROVAL_STEP ORDER BY STEP_ORDER, VALID_FROM_PERIOD_KEY;
 
 
 /* =====================================================================================
-   C. EMPLOYEES, COST CENTER, ADJUSTMENTS (November is open)
+   C. EMPLOYEES, COST CENTER (November is open)
    ===================================================================================== */
 
 -- C1. New employee starting in November. Expected OK: "Employee HR-KH-010 created."
@@ -140,16 +147,13 @@ CALL APP.SP_SAVE_EMPLOYEE_CONTRACT('admin@example.org', $DARA_ID, 202610, '{"mon
 -- C8. Expected OK: "Employee deactivated from 202611 onwards."
 CALL APP.SP_SET_EMPLOYEE_ACTIVE('admin@example.org', $MARTIN_ID, FALSE);
 
--- C9. Expected OK: "Adjustment added."
-CALL APP.SP_SAVE_PAYROLL_ADJUSTMENT('admin@example.org', NULL, 202611, $DARA_ID, 15, 202610, 'October transport allowance missed');
-
--- C10. November summary. Expected: 3 employees (Sokha 1,100, Dara 700 + 15 adjustment, Lina 800);
+-- C9. November summary. Expected: 3 employees (Sokha 1,100, Dara 700, Lina 800);
 --      Martin is gone because he was deactivated in C8
 SELECT e.RESOURCE_CODE, s.GROSS_PAY_USD, s.SALARY_TAX_USD, s.NET_PAY_USD, s.EMPLOYER_COST_USD
-FROM CORE.V_F_PAYROLL_SUMMARY s JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = s.EMPLOYEE_ID
+FROM RPT.V_F_PAYROLL_SUMMARY s JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = s.EMPLOYEE_ID
 WHERE s.SCENARIO_ID = $ACTUAL_ID AND s.PERIOD_KEY = 202611 ORDER BY e.RESOURCE_CODE;
 
--- C11. Dara's contract history. Expected: 202601-202610 at 650, then 202611 onwards at 700
+-- C10. Dara's contract history. Expected: 202601-202610 at 650, then 202611 onwards at 700
 SELECT CONTRACT_ID, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY, MONTHLY_SALARY_USD, CHANGE_REASON
 FROM APP.T_D_EMPLOYEE_CONTRACT WHERE EMPLOYEE_ID = $DARA_ID ORDER BY VALID_FROM_PERIOD_KEY;
 
@@ -184,16 +188,16 @@ CALL APP.SP_DELETE_PLANNED_HIRE('clerk@example.org', $COPY_ID, $ANALYST_ID);
 
 -- D7. Expected OK: "Scenario submitted for approval."
 CALL APP.SP_SUBMIT_SCENARIO('clerk@example.org', $COPY_ID);
-SET COPY_REQ = (SELECT MAX(REQUEST_ID) FROM APP.T_F_APPROVAL_REQUEST WHERE SCENARIO_ID = $COPY_ID);
 
 -- D8. Expected ERROR: "This scenario is IN_APPROVAL and cannot be edited."
 CALL APP.SP_SAVE_SCENARIO_EMPLOYEE('clerk@example.org', $COPY_ID, $SOKHA_RAISE);
 
 -- D9. Three approvals (step 2 now belongs to treasurer2, see B5).
 --     Expected OK x3; the last: "Budget approved. It is now the official budget for 2027."
-CALL APP.SP_APPROVE_STEP('hr@example.org',         $COPY_REQ, 1, NULL);
-CALL APP.SP_APPROVE_STEP('treasurer2@example.org', $COPY_REQ, 2, NULL);
-CALL APP.SP_APPROVE_STEP('director@example.org',   $COPY_REQ, 3, 'Approved');
+--     A budget is approved as a whole: the month is 0 (NULL also works).
+CALL APP.SP_APPROVE_STEP('hr@example.org',         $COPY_ID, 0, 1, NULL);
+CALL APP.SP_APPROVE_STEP('treasurer2@example.org', $COPY_ID, 0, 2, NULL);
+CALL APP.SP_APPROVE_STEP('director@example.org',   $COPY_ID, 0, 3, 'Approved');
 
 -- D10. Expected: Copy APPROVED and official; Base no longer official
 SELECT SCENARIO_NAME, SCENARIO_STATUS, IS_OFFICIAL FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'BUDGET' ORDER BY SCENARIO_ID;

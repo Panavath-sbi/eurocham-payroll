@@ -1,6 +1,6 @@
 /* =====================================================================================
    R - SP_SET_EMPLOYEE_CHECK
-   Checks, rejects or re-opens employees for a payroll month (per-employee validation).
+   Checks, rejects or re-opens employees of the payroll month (per-employee validation).
    =====================================================================================
 
    HISTORY
@@ -8,7 +8,9 @@
    2026-09-29  Initial version.
    2026-10-02  One check per employee per payroll month (no step column). Only the step
                flagged MANAGES_EMPLOYEE_CHECKS (step 2) can set checks; actual payroll only.
-               P_STEP_ORDER is kept so the Power Automate flow does not change.
+   2026-10-02  V1.5.0: the check is stored on the employee's T_F_PAYROLL_INPUT row
+               (CHECK_STATUS, CHECK_COMMENT, CHECKED_BY); takes the payroll month instead
+               of a request id; one role per user (T_D_APP_USER.ROLE_CODE).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -23,32 +25,32 @@
    * Validations run before any write; writes run in one transaction.
    ===================================================================================== */
 
-/* P_EMPLOYEE_IDS: JSON array of employee ids, e.g. '[7, 12]'.
-                   NULL = "Approve All": every employee still PENDING becomes CHECKED
-                   (rejected employees are left as they are).
+/* P_PERIOD_KEY:   the payroll month (YYYYMM) of the actual payroll.
    P_STEP_ORDER:   must be the step that manages employee checks (MANAGES_EMPLOYEE_CHECKS,
                    step 2). Other steps get an error.
+   P_EMPLOYEE_IDS: JSON array of employee ids, e.g. '[7, 12]'.
+                   NULL = "Approve All": every employee still PENDING becomes CHECKED
+                   (rejected employees are left as they are).
    P_CHECK_STATUS: CHECKED, REJECTED (comment required) or PENDING.
-   Actual payroll only. Role: the step's APPROVER_ROLE. The step must not be approved yet.
-   The check is one status per employee for the month, whoever looks at it. */
+   The month must be OPEN or IN_APPROVAL. Role: the step's APPROVER_ROLE. The step must not
+   be approved yet. There is one check per employee for the month. */
 USE DATABASE PAYROLL_DB;
-   
-CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_CHECK(P_USER_EMAIL TEXT, P_REQUEST_ID INT, P_STEP_ORDER INT,
+
+CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_CHECK(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_STEP_ORDER INT,
                                                       P_EMPLOYEE_IDS TEXT, P_CHECK_STATUS TEXT, P_COMMENT TEXT)
 RETURNS VARIANT
 LANGUAGE SQL
-COMMENT = 'Sets the per-employee check of one approval step'
+COMMENT = 'Sets the per-employee check of the payroll month'
 EXECUTE AS OWNER
 AS
 $$
 DECLARE
     v_scen        INT;
-    v_pk          INT;
-    v_req_status  TEXT;
-    v_type        TEXT;
     v_role        TEXT;
     v_step_status TEXT;
     v_checks      INT;
+    v_in_progress INT;
+    v_appr_status TEXT;
     v_allowed     INT;
     v_unknown     INT;
     v_changed     INT DEFAULT 0;
@@ -63,27 +65,18 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Approve All can only set employees to CHECKED.');
     END IF;
 
-    SELECT MAX(r.SCENARIO_ID), MAX(r.PERIOD_KEY), MAX(r.REQUEST_STATUS), MAX(s.SCENARIO_TYPE)
-      INTO :v_scen, :v_pk, :v_req_status, :v_type
-    FROM APP.T_F_APPROVAL_REQUEST r
-    JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = r.SCENARIO_ID
-    WHERE r.REQUEST_ID = :P_REQUEST_ID;
-    IF (v_scen IS NULL) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Approval request ' || P_REQUEST_ID || ' does not exist.');
-    END IF;
-    IF (v_type <> 'ACTUAL') THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Per-employee checks are only used for payroll approvals.');
-    END IF;
-    IF (v_req_status <> 'IN_PROGRESS') THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'This approval request is ' || v_req_status || '.');
-    END IF;
+    SELECT MAX(SCENARIO_ID) INTO :v_scen FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL';
 
-    SELECT MAX(APPROVER_ROLE), MAX(STEP_STATUS), MAX(IFF(MANAGES_EMPLOYEE_CHECKS, 1, 0))
-      INTO :v_role, :v_step_status, :v_checks
+    SELECT MAX(APPROVER_ROLE), MAX(STEP_STATUS), MAX(IFF(MANAGES_EMPLOYEE_CHECKS, 1, 0)),
+           MAX(IFF(IS_IN_PROGRESS, 1, 0)), MAX(APPROVAL_STATUS)
+      INTO :v_role, :v_step_status, :v_checks, :v_in_progress, :v_appr_status
     FROM RPT.V_F_APPROVAL_PROGRESS
-    WHERE REQUEST_ID = :P_REQUEST_ID AND STEP_ORDER = :P_STEP_ORDER;
+    WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY AND STEP_ORDER = :P_STEP_ORDER;
     IF (v_role IS NULL) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Step ' || P_STEP_ORDER || ' is not part of this approval chain.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'No approval step ' || P_STEP_ORDER || ' found for payroll ' || P_PERIOD_KEY || '.');
+    END IF;
+    IF (v_in_progress = 0) THEN
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Payroll ' || P_PERIOD_KEY || ' is ' || v_appr_status || '.');
     END IF;
     IF (v_checks = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Step ' || P_STEP_ORDER || ' does not use per-employee checks.');
@@ -91,8 +84,7 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE = :v_role;
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = :v_role;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a user with role ' || v_role || ' can act on step ' || P_STEP_ORDER || '.');
     END IF;
@@ -105,7 +97,7 @@ BEGIN
         SELECT COUNT(*) INTO :v_unknown
         FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:P_EMPLOYEE_IDS))) f
         WHERE f.VALUE::INT NOT IN (SELECT i.EMPLOYEE_ID FROM APP.T_F_PAYROLL_INPUT i
-                                   WHERE i.SCENARIO_ID = :v_scen AND i.PERIOD_KEY = :v_pk AND i.INCLUDE_IN_PAYROLL);
+                                   WHERE i.SCENARIO_ID = :v_scen AND i.PERIOD_KEY = :P_PERIOD_KEY AND i.INCLUDE_IN_PAYROLL);
         IF (v_unknown > 0) THEN
             RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_unknown || ' employee(s) are not part of this payroll.');
         END IF;
@@ -113,35 +105,22 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    MERGE INTO APP.T_F_APPROVAL_EMPLOYEE_CHECK t
-    USING (
-        SELECT i.EMPLOYEE_ID
-        FROM APP.T_F_PAYROLL_INPUT i
-        LEFT JOIN APP.T_F_APPROVAL_EMPLOYEE_CHECK c
-               ON c.REQUEST_ID = :P_REQUEST_ID AND c.EMPLOYEE_ID = i.EMPLOYEE_ID
-        WHERE i.SCENARIO_ID = :v_scen AND i.PERIOD_KEY = :v_pk AND i.INCLUDE_IN_PAYROLL
-          AND (   (:P_EMPLOYEE_IDS IS NULL AND COALESCE(c.CHECK_STATUS, 'PENDING') = 'PENDING')
-               OR (:P_EMPLOYEE_IDS IS NOT NULL
-                   AND i.EMPLOYEE_ID IN (SELECT f.VALUE::INT FROM TABLE(FLATTEN(INPUT => PARSE_JSON(COALESCE(:P_EMPLOYEE_IDS, '[]')))) f)))
-    ) s
-       ON t.REQUEST_ID = :P_REQUEST_ID AND t.EMPLOYEE_ID = s.EMPLOYEE_ID
-    WHEN MATCHED THEN UPDATE SET
-        CHECK_STATUS  = :P_CHECK_STATUS,
+    UPDATE APP.T_F_PAYROLL_INPUT
+    SET CHECK_STATUS  = :P_CHECK_STATUS,
         CHECK_COMMENT = :P_COMMENT,
         CHECKED_BY    = IFF(:P_CHECK_STATUS = 'PENDING', NULL, :P_USER_EMAIL),
         UPDATE_DATE   = CURRENT_TIMESTAMP,
         UPDATE_BY     = :P_USER_EMAIL
-    WHEN NOT MATCHED THEN INSERT
-        (REQUEST_ID, EMPLOYEE_ID, CHECK_STATUS, CHECK_COMMENT, CHECKED_BY, INSERT_BY, UPDATE_BY)
-    VALUES
-        (:P_REQUEST_ID, s.EMPLOYEE_ID, :P_CHECK_STATUS, :P_COMMENT,
-         IFF(:P_CHECK_STATUS = 'PENDING', NULL, :P_USER_EMAIL), :P_USER_EMAIL, :P_USER_EMAIL);
+    WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY AND INCLUDE_IN_PAYROLL
+      AND (   (:P_EMPLOYEE_IDS IS NULL AND COALESCE(CHECK_STATUS, 'PENDING') = 'PENDING')
+           OR (:P_EMPLOYEE_IDS IS NOT NULL
+               AND EMPLOYEE_ID IN (SELECT f.VALUE::INT FROM TABLE(FLATTEN(INPUT => PARSE_JSON(COALESCE(:P_EMPLOYEE_IDS, '[]')))) f)));
     v_changed := SQLROWCOUNT;
 
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
-    SELECT 'APP.T_F_APPROVAL_EMPLOYEE_CHECK', OBJECT_CONSTRUCT('REQUEST_ID', :P_REQUEST_ID), 'UPDATE', NULL,
+    SELECT 'APP.T_F_PAYROLL_INPUT', OBJECT_CONSTRUCT('SCENARIO_ID', :v_scen, 'PERIOD_KEY', :P_PERIOD_KEY), 'UPDATE', NULL,
            OBJECT_CONSTRUCT('EMPLOYEE_IDS', PARSE_JSON(COALESCE(:P_EMPLOYEE_IDS, '"ALL_PENDING"')),
-                            'CHECK_STATUS', :P_CHECK_STATUS, 'COMMENT', :P_COMMENT, 'STEP_ORDER', :P_STEP_ORDER),
+                            'CHECK_STATUS', :P_CHECK_STATUS, 'CHECK_COMMENT', :P_COMMENT, 'STEP_ORDER', :P_STEP_ORDER),
            :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     COMMIT;

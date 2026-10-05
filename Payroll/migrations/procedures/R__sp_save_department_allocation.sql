@@ -6,6 +6,7 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -69,9 +70,8 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (r.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND r.ROLE_CODE = 'BUDGET_EDITOR'));
+      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to edit this scenario.');
     END IF;
@@ -94,7 +94,7 @@ BEGIN
            COUNT_IF(t.CODE IS NULL OR t.SHARE_PCT IS NULL OR t.SHARE_PCT < 0 OR d.DEPARTMENT_CODE IS NULL)
       INTO :v_rows, :v_dupes, :v_total, :v_bad
     FROM APP.TMP_ALLOC_DEPARTMENT t
-    LEFT JOIN CORE.T_D_DEPARTMENT d ON d.DEPARTMENT_CODE = t.CODE AND d.IS_ACTIVE;
+    LEFT JOIN APP.T_D_DEPARTMENT d ON d.DEPARTMENT_CODE = t.CODE AND d.IS_ACTIVE;
     IF (v_rows = 0 OR v_bad > 0 OR v_dupes > 0) THEN
         DROP TABLE IF EXISTS APP.TMP_ALLOC_DEPARTMENT;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Each row needs a known, active {jcode} and a share >= 0, with no duplicates.');

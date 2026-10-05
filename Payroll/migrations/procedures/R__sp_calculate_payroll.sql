@@ -7,6 +7,7 @@
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
+   2026-10-02  V1.5.0: role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -52,9 +53,8 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (r.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND r.ROLE_CODE = 'BUDGET_EDITOR'));
+      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to calculate this scenario.');
     END IF;

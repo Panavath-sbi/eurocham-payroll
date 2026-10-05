@@ -8,6 +8,7 @@
    2026-09-29  Initial version.
    2026-09-29  Fix: "INTO clause is not allowed in this context" - the create-validation
                SELECT INTO no longer contains a subquery; the chamber is checked separately.
+   2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -62,8 +63,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
     END IF;
@@ -99,7 +99,7 @@ BEGIN
         FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D);
 
         SELECT COUNT(*) INTO :v_entity_ok
-        FROM CORE.T_D_ENTITY
+        FROM APP.T_D_ENTITY
         WHERE ENTITY_CODE = :v_entity AND IS_ACTIVE;
 
         IF (v_missing = 1) THEN

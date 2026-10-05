@@ -11,6 +11,12 @@
    2026-09-30  Added Payroll_Approval (replaces the SharePoint approval list).
                Fct_Payroll to follow.
    2026-09-30  Added Fct_Payroll (RPT.V_F_PBI_PAYROLL).
+   2026-10-02  V1.5.0: tables in APP, base views in RPT (CORE removed).
+               Payroll_Approval reads approvals by scenario + period (no request) and the
+               assigned approver from T_D_APP_USER.ROLE_CODE. Fct_Payroll reads
+               RPT.V_F_COST_ALLOCATION; Tot_Allowance = outstanding-leave payouts only
+               (payroll adjustments were removed). New RPT.V_D_PBI_SIGNATURE replaces the
+               RPT.SIGNATURES table (same column names).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    NOTES
@@ -42,7 +48,7 @@ SELECT
     COALESCE(sp.FX_RATE_NBC, 0)::FLOAT                           AS "FX_USD_KHR",
     COALESCE(sp.FX_RATE_NSSF, 0)::FLOAT                          AS "FX_NSSF_KHR",
     COALESCE(sp.WORKING_DAYS, NULLIF(p.WORKING_DAYS, 0), 0)::INT AS "Working_Days"
-FROM CORE.T_D_PERIOD p
+FROM APP.T_D_PERIOD p
 LEFT JOIN APP.T_D_SCENARIO s
        ON s.SCENARIO_TYPE = 'ACTUAL'
 LEFT JOIN APP.T_F_SCENARIO_PERIOD sp
@@ -103,8 +109,8 @@ non_residency AS (
            MIN(pf.PERIOD_START_DATE)                                        AS NR_START,
            IFF(COUNT_IF(c.VALID_TO_PERIOD_KEY IS NULL) > 0, NULL, MAX(pt.PERIOD_END_DATE)) AS NR_END
     FROM APP.T_D_EMPLOYEE_CONTRACT c
-    JOIN CORE.T_D_PERIOD pf      ON pf.PERIOD_KEY = c.VALID_FROM_PERIOD_KEY
-    LEFT JOIN CORE.T_D_PERIOD pt ON pt.PERIOD_KEY = c.VALID_TO_PERIOD_KEY
+    JOIN APP.T_D_PERIOD pf      ON pf.PERIOD_KEY = c.VALID_FROM_PERIOD_KEY
+    LEFT JOIN APP.T_D_PERIOD pt ON pt.PERIOD_KEY = c.VALID_TO_PERIOD_KEY
     WHERE c.TAX_STATUS = 'NON_RESIDENT'
     GROUP BY c.EMPLOYEE_ID
 )
@@ -149,37 +155,30 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL_APPROVAL (
 )
 COMMENT = 'Power BI: Payroll_Approval (replaces the SharePoint approval list)'
 AS
-WITH latest_request AS (   -- one approval cycle per payroll month: the latest one
-    SELECT r.REQUEST_ID, r.PERIOD_KEY
-    FROM APP.T_F_APPROVAL_REQUEST r
-    JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = r.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
-    WHERE r.PERIOD_KEY IS NOT NULL
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY r.PERIOD_KEY ORDER BY r.REQUEST_ID DESC) = 1
-),
-assigned AS (              -- who holds each approver role today
-    SELECT ur.ROLE_CODE, LISTAGG(ur.USER_EMAIL, '; ') WITHIN GROUP (ORDER BY ur.USER_EMAIL) AS EMAILS
-    FROM APP.T_D_APP_USER_ROLE ur
-    JOIN APP.T_D_APP_USER u ON u.USER_EMAIL = ur.USER_EMAIL AND u.IS_ACTIVE
-    GROUP BY ur.ROLE_CODE
+WITH assigned AS (         -- who holds each approver role today (one role per user)
+    SELECT u.ROLE_CODE, LISTAGG(u.USER_EMAIL, '; ') WITHIN GROUP (ORDER BY u.USER_EMAIL) AS EMAILS
+    FROM APP.T_D_APP_USER u
+    WHERE u.IS_ACTIVE
+    GROUP BY u.ROLE_CODE
 )
 SELECT
-    lr.PERIOD_KEY::TEXT                                                   AS "Title",
+    pr.PERIOD_KEY::TEXT                                                   AS "Title",
     pr.STEP_TITLE                                                         AS "Approval_Step",
     IFF(pr.STEP_STATUS IN ('APPROVED', 'REJECTED'), COALESCE(u.DISPLAY_NAME, pr.ACTED_BY), NULL) AS "Approved_By",
     IFF(pr.STEP_STATUS IN ('APPROVED', 'REJECTED'), pr.ACTED_AT::TIMESTAMP_NTZ, NULL)            AS "Approval_Date",
     CASE pr.STEP_STATUS WHEN 'APPROVED' THEN 'Approved' WHEN 'REJECTED' THEN 'Rejected' END      AS "Approval_Status",
-    pr.ACTION_COMMENT                                                     AS "Comments",
+    pr.STEP_COMMENT                                                       AS "Comments",
     pr.STEP_ORDER::INT                                                    AS "Step_Order",
     a.EMAILS                                                              AS "Assigned_To",
     'Actuals'                                                             AS "Approval_Type",
     p.YEAR::INT                                                           AS "Year",
     p.MONTH_NUMBER::INT                                                   AS "MonthNo"
-FROM latest_request lr
-JOIN RPT.V_F_APPROVAL_PROGRESS pr ON pr.REQUEST_ID = lr.REQUEST_ID
-JOIN CORE.T_D_PERIOD p            ON p.PERIOD_KEY = lr.PERIOD_KEY
+FROM RPT.V_F_APPROVAL_PROGRESS pr
+JOIN APP.T_D_PERIOD p             ON p.PERIOD_KEY = pr.PERIOD_KEY
 LEFT JOIN APP.T_D_APP_USER u      ON u.USER_EMAIL = pr.ACTED_BY
 LEFT JOIN assigned a              ON a.ROLE_CODE = pr.APPROVER_ROLE
-WHERE p.YEAR = YEAR(CURRENT_DATE());
+WHERE pr.SCENARIO_TYPE = 'ACTUAL'
+  AND p.YEAR = YEAR(CURRENT_DATE());
 
 
 /* -------------------------------------------------------------------------------------
@@ -187,11 +186,11 @@ WHERE p.YEAR = YEAR(CURRENT_DATE());
    One row per employee x month x department, actual payroll of the current year
    (every calculated month: finalized months and the open month).
 
-   * Totals use the same rules as CORE.V_F_PAYROLL_SUMMARY (by pay component CATEGORY):
+   * Totals use the same rules as RPT.V_F_PAYROLL_SUMMARY (by pay component CATEGORY):
      gross = EARNING, net = gross - EMPLOYEE_DEDUCTION, NSSF ER = EMPLOYER_CONTRIBUTION.
-   * Tot_Allowance = ADJUSTMENT + OUTSTANDING_LEAVE (assumption, to confirm).
+   * Tot_Allowance = OUTSTANDING_LEAVE payouts (payroll adjustments were removed).
    * CostCenter: ECCC -> 'CC_9999-Shared', CCIFC -> 'CCIFC'.
-   * Department split: shares come from CORE.T_F_COST_ALLOCATION (as calculated),
+   * Department split: shares come from RPT.V_F_COST_ALLOCATION,
      normalised to 1 per employee and month. An unsplit employee gets one row with
      department 'Default' and share 1. Money columns are multiplied by the department
      share; days, rates, dependant count and percentages are not.
@@ -213,7 +212,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL (
     "TaxResidency_Name"      COMMENT 'Resident or Non-Resident, from the contract of the month',
     "Month"                  COMMENT 'Month code M01..M12',
     "Month_Full"             COMMENT 'Full month name, e.g. April',
-    "Tot_Allowance"          COMMENT 'Adjustments + outstanding leave payout, USD (department share)',
+    "Tot_Allowance"          COMMENT 'Outstanding leave payout, USD (department share)',
     "Present_Working_Days"   COMMENT 'Working days minus absence days (not split)',
     "Dep_Count"              COMMENT 'Number of dependants (children + spouse) (not split)',
     "Gross_Compensation"     COMMENT 'Gross pay USD = all earnings (department share)',
@@ -259,7 +258,7 @@ WITH months AS (           -- actual payroll months of the current year
     SELECT sp.SCENARIO_ID, sp.PERIOD_KEY, sp.WORKING_DAYS, p.MONTH_NUMBER, p.PERIOD_START_DATE
     FROM APP.T_F_SCENARIO_PERIOD sp
     JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
-    JOIN CORE.T_D_PERIOD p  ON p.PERIOD_KEY = sp.PERIOD_KEY
+    JOIN APP.T_D_PERIOD p  ON p.PERIOD_KEY = sp.PERIOD_KEY
     WHERE p.YEAR = YEAR(CURRENT_DATE())
 ),
 amounts AS (               -- one row per employee and month, pay components pivoted
@@ -272,7 +271,7 @@ amounts AS (               -- one row per employee and month, pay components piv
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'OVERTIME',        l.AMOUNT_USD, 0)), 2) AS OVERTIME_USD,
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'SENIORITY',       l.AMOUNT_USD, 0)), 2) AS SENIORITY_USD,
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'UNPAID_LEAVE',    l.AMOUNT_USD, 0)), 2) AS UNPAID_LEAVE_USD,
-        ROUND(SUM(IFF(l.PAY_COMPONENT_CODE IN ('ADJUSTMENT', 'OUTSTANDING_LEAVE'), l.AMOUNT_USD, 0)), 2) AS ALLOWANCE_USD,
+        ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'OUTSTANDING_LEAVE', l.AMOUNT_USD, 0)), 2) AS ALLOWANCE_USD,
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'TAXABLE_BASE',    l.AMOUNT_USD, 0)), 2) AS TAXABLE_BASE_USD,
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'NSSF_EE_PENSION', l.AMOUNT_USD, 0)), 2) AS NSSF_EE_USD,
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'SALARY_TAX',      l.AMOUNT_USD, 0)), 2) AS SALARY_TAX_USD,
@@ -290,8 +289,8 @@ amounts AS (               -- one row per employee and month, pay components piv
         ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYEE_DEDUCTION',       l.AMOUNT_KHR, 0)), 0) AS DEDUCTIONS_KHR,
         ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYER_CONTRIBUTION',    l.AMOUNT_KHR, 0)), 0) AS NSSF_ER_KHR,
         SUM(IFF(l.PAY_COMPONENT_CODE = 'TAX_CALC_BASE',         l.AMOUNT_KHR, 0))     AS TAX_CALC_BASE_KHR
-    FROM CORE.T_F_PAYROLL_LINE l
-    JOIN CORE.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
+    FROM APP.T_F_PAYROLL_LINE l
+    JOIN APP.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
     JOIN months m                  ON m.SCENARIO_ID = l.SCENARIO_ID AND m.PERIOD_KEY = l.PERIOD_KEY
     GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID
 ),
@@ -299,7 +298,7 @@ alloc AS (                 -- calculated fund x department shares, normalised to
     SELECT ca.SCENARIO_ID, ca.PERIOD_KEY, ca.EMPLOYEE_ID, ca.FUND_CODE, ca.DEPARTMENT_CODE,
            ca.ALLOCATION_SHARE
              / NULLIF(SUM(ca.ALLOCATION_SHARE) OVER (PARTITION BY ca.SCENARIO_ID, ca.PERIOD_KEY, ca.EMPLOYEE_ID), 0) AS SHARE
-    FROM CORE.T_F_COST_ALLOCATION ca
+    FROM RPT.V_F_COST_ALLOCATION ca
     JOIN months m ON m.SCENARIO_ID = ca.SCENARIO_ID AND m.PERIOD_KEY = ca.PERIOD_KEY
 ),
 dept_share AS (            -- one row per department the employee is split over
@@ -338,7 +337,7 @@ month_contract AS (        -- contract version in force in the payroll month
 tax_rate AS (              -- highest bracket whose lower bound the taxable base exceeds
     SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, tb.TAX_RATE
     FROM amounts am
-    JOIN CORE.T_P_TAX_BRACKET tb
+    JOIN APP.T_P_TAX_BRACKET tb
       ON tb.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
      AND (tb.VALID_TO_PERIOD_KEY IS NULL OR tb.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
      AND am.TAX_CALC_BASE_KHR > tb.LOWER_BOUND_KHR
@@ -400,7 +399,7 @@ JOIN fund_share fs         ON fs.SCENARIO_ID = am.SCENARIO_ID AND fs.PERIOD_KEY 
                           AND fs.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN dept_share d     ON d.SCENARIO_ID = am.SCENARIO_ID AND d.PERIOD_KEY = am.PERIOD_KEY
                           AND d.EMPLOYEE_ID = am.EMPLOYEE_ID
-LEFT JOIN CORE.T_D_DEPARTMENT dep ON dep.DEPARTMENT_CODE = d.DEPARTMENT_CODE
+LEFT JOIN APP.T_D_DEPARTMENT dep ON dep.DEPARTMENT_CODE = d.DEPARTMENT_CODE
 LEFT JOIN month_contract mc ON mc.SCENARIO_ID = am.SCENARIO_ID AND mc.PERIOD_KEY = am.PERIOD_KEY
                           AND mc.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN tax_rate tr      ON tr.SCENARIO_ID = am.SCENARIO_ID AND tr.PERIOD_KEY = am.PERIOD_KEY
@@ -408,3 +407,19 @@ LEFT JOIN tax_rate tr      ON tr.SCENARIO_ID = am.SCENARIO_ID AND tr.PERIOD_KEY 
 LEFT JOIN APP.T_F_PAYROLL_INPUT pi ON pi.SCENARIO_ID = am.SCENARIO_ID AND pi.PERIOD_KEY = am.PERIOD_KEY
                           AND pi.EMPLOYEE_ID = am.EMPLOYEE_ID
 CROSS JOIN LATERAL (SELECT COALESCE(d.DEPT_SHARE, 1) AS S) ds;
+
+
+/* -------------------------------------------------------------------------------------
+   eSignature  ->  RPT.V_D_PBI_SIGNATURE
+   One row per app user with a signature. Same column names as the former RPT.SIGNATURES
+   table, so the Power BI query only needs its source changed to this view.
+   ------------------------------------------------------------------------------------- */
+CREATE OR REPLACE VIEW RPT.V_D_PBI_SIGNATURE (
+    APPROVER_EMAIL COMMENT 'Email of the approver (app user)',
+    IMAGE_BASE64   COMMENT 'E-signature image in Base64'
+)
+COMMENT = 'Power BI: approver e-signatures (from APP.T_D_APP_USER.SIGNATURE_IMAGE)'
+AS
+SELECT USER_EMAIL, SIGNATURE_IMAGE
+FROM APP.T_D_APP_USER
+WHERE SIGNATURE_IMAGE IS NOT NULL;

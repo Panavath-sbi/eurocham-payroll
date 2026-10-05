@@ -6,6 +6,7 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -52,8 +53,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
     END IF;
@@ -82,7 +82,7 @@ BEGIN
         IF (v_year IS NULL) THEN
             RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'A fiscal year is required.');
         END IF;
-        SELECT COUNT_IF(COALESCE(BUDGET_WORKING_DAYS, 0) = 0) INTO :v_unset FROM CORE.T_D_PERIOD WHERE YEAR = :v_year;
+        SELECT COUNT_IF(COALESCE(BUDGET_WORKING_DAYS, 0) = 0) INTO :v_unset FROM APP.T_D_PERIOD WHERE YEAR = :v_year;
         IF (v_unset > 0) THEN
             RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_unset || ' month(s) of ' || v_year || ' have no budget working days. Set them on the Settings page.');
         END IF;
@@ -103,7 +103,7 @@ BEGIN
     IF (P_SOURCE_SCENARIO_ID IS NULL) THEN
         INSERT INTO APP.T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY, PERIOD_STATUS, WORKING_DAYS, FX_RATE_NBC, FX_RATE_NSSF, INSERT_BY, UPDATE_BY)
         SELECT :v_new, PERIOD_KEY, 'DRAFT', BUDGET_WORKING_DAYS, :v_nbc, :v_nssf, :P_USER_EMAIL, :P_USER_EMAIL
-        FROM CORE.T_D_PERIOD WHERE YEAR = :v_year;
+        FROM APP.T_D_PERIOD WHERE YEAR = :v_year;
 
         INSERT INTO APP.T_D_SCENARIO_EMPLOYEE
             (SCENARIO_ID, EMPLOYEE_ID, SOURCE_CONTRACT_ID, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,

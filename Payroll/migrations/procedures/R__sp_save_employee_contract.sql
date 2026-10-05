@@ -6,6 +6,7 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -58,8 +59,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
     END IF;
@@ -88,7 +88,7 @@ BEGIN
     END IF;
 
     SELECT MAX(TO_NUMBER(TO_CHAR(DATEADD(MONTH, -1, PERIOD_START_DATE), 'YYYYMM'))) INTO :v_prev
-    FROM CORE.T_D_PERIOD WHERE PERIOD_KEY = :v_eff;
+    FROM APP.T_D_PERIOD WHERE PERIOD_KEY = :v_eff;
     IF (v_prev IS NULL) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || v_eff || ' is not in the calendar.');
     END IF;
@@ -125,7 +125,7 @@ BEGIN
                     OR t.TAX_STATUS NOT IN ('RESIDENT', 'NON_RESIDENT') OR e.ENTITY_CODE IS NULL)
       INTO :v_bad
     FROM APP.TMP_CONTRACT t
-    LEFT JOIN CORE.T_D_ENTITY e ON e.ENTITY_CODE = t.ENTITY_CODE AND e.IS_ACTIVE;
+    LEFT JOIN APP.T_D_ENTITY e ON e.ENTITY_CODE = t.ENTITY_CODE AND e.IS_ACTIVE;
     IF (v_bad > 0) THEN
         DROP TABLE IF EXISTS APP.TMP_CONTRACT;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Invalid values: amounts must be >= 0, spouse 0 or 1, tax status RESIDENT / NON_RESIDENT, and the chamber must exist.');

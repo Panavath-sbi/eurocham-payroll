@@ -6,6 +6,7 @@
    HISTORY
    -------
    2026-09-29  Initial version.
+   2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -52,8 +53,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
     END IF;
@@ -116,7 +116,7 @@ BEGIN
                     OR t.TAX_STATUS NOT IN ('RESIDENT', 'NON_RESIDENT'))
       INTO :v_bad
     FROM APP.TMP_HIRE t
-    LEFT JOIN CORE.T_D_ENTITY e ON e.ENTITY_CODE = t.ENTITY_CODE AND e.IS_ACTIVE;
+    LEFT JOIN APP.T_D_ENTITY e ON e.ENTITY_CODE = t.ENTITY_CODE AND e.IS_ACTIVE;
     IF (v_bad > 0) THEN
         DROP TABLE IF EXISTS APP.TMP_HIRE;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'A planned hire needs a known chamber (entity_code), a salary >= 0 and valid tax details.');

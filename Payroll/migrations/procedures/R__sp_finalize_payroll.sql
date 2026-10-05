@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
+   2026-10-02  V1.5.0: approvals read by scenario + period (no request to close); CORE -> APP;
+               one role per user.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -26,7 +28,7 @@
 /* =====================================================================================
    SP_FINALIZE_PAYROLL (public) - "Process" on the Approval page
    Role: PAYROLL_ADMIN.
-   Requires every approval step of the open request to be APPROVED. Locks the month
+   Requires every approval step of the month to be APPROVED. Locks the month
    exactly as approved: no recalculation happens here, because any change after an
    approval already resets that approval.
    ===================================================================================== */
@@ -43,15 +45,13 @@ DECLARE
     v_allowed INT;
     v_scen    INT;
     v_status  TEXT;
-    v_req     INT;
     v_steps   INT;
     v_pending INT;
     v_lines   INT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE = 'PAYROLL_ADMIN';
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = 'PAYROLL_ADMIN';
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can finalize payroll.');
     END IF;
@@ -67,21 +67,14 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || P_PERIOD_KEY || ' is already finalized.');
     END IF;
 
-    SELECT MAX(REQUEST_ID) INTO :v_req
-    FROM APP.T_F_APPROVAL_REQUEST
-    WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY AND REQUEST_STATUS = 'IN_PROGRESS';
-    IF (v_req IS NULL) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'No approval in progress for ' || P_PERIOD_KEY || '.');
-    END IF;
-
     SELECT COUNT(*), COUNT_IF(STEP_STATUS <> 'APPROVED') INTO :v_steps, :v_pending
-    FROM RPT.V_F_APPROVAL_PROGRESS WHERE REQUEST_ID = :v_req;
+    FROM RPT.V_F_APPROVAL_PROGRESS WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_steps = 0 OR v_pending > 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_pending || ' approval step(s) are not approved yet.');
     END IF;
 
     SELECT COUNT(*) INTO :v_lines
-    FROM CORE.T_F_PAYROLL_LINE WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
+    FROM APP.T_F_PAYROLL_LINE WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_lines = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || P_PERIOD_KEY || ' has no calculated payroll.');
     END IF;
@@ -93,10 +86,6 @@ BEGIN
         UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
 
-    UPDATE APP.T_F_APPROVAL_REQUEST
-    SET REQUEST_STATUS = 'APPROVED', COMPLETED_AT = CURRENT_TIMESTAMP,
-        UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-    WHERE REQUEST_ID = :v_req;
 
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_F_SCENARIO_PERIOD',

@@ -7,6 +7,10 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  A renamed step keeps its MANAGES_EMPLOYEE_CHECKS flag in the new version.
+   2026-10-02  V1.5.0: one role per user (T_D_APP_USER.ROLE_CODE): the new approver gets the
+               step's role, and whoever held it before becomes VIEWER. Two steps cannot
+               share one approver, and the admin cannot make themselves an approver.
+               CORE tables moved to APP.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -26,8 +30,9 @@
    step_order must be a step of the current chain (steps are not added or removed here).
    A new title applies from the current calendar month: the step version in force is
    closed the month before and a new version is added (or corrected if it started this month).
-   approver_email: the user is created if new, gets the step's APPROVER_ROLE, and every
-   other user loses that role. Role: PAYROLL_ADMIN. */
+   approver_email: the user is created if new and gets the step's APPROVER_ROLE as their
+   one role (replacing any role they had); every other user who held that role becomes
+   VIEWER. The same person cannot approve two steps. Role: PAYROLL_ADMIN. */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_APPROVAL_STEPS(P_USER_EMAIL TEXT, P_STEPS TEXT)
@@ -46,8 +51,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
     END IF;
@@ -63,7 +67,7 @@ BEGIN
            s.APPROVAL_STEP_ID, s.STEP_TITLE AS OLD_TITLE, s.APPROVER_ROLE, s.APPLIES_TO, s.VALID_FROM_PERIOD_KEY,
            COALESCE(s.MANAGES_EMPLOYEE_CHECKS, FALSE) AS MANAGES_EMPLOYEE_CHECKS
     FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:P_STEPS))) f
-    LEFT JOIN CORE.T_P_APPROVAL_STEP s
+    LEFT JOIN APP.T_P_APPROVAL_STEP s
            ON s.STEP_ORDER = f.VALUE:step_order::INT AND s.IS_ACTIVE
           AND :v_now BETWEEN s.VALID_FROM_PERIOD_KEY AND COALESCE(s.VALID_TO_PERIOD_KEY, 999912);
 
@@ -75,45 +79,62 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Each row needs an existing step_order and a step_title or approver_email.');
     END IF;
 
+    -- One role per user: the admin doing this would lose their admin role
+    SELECT COUNT(*) INTO :v_bad FROM APP.TMP_STEPS WHERE APPROVER_EMAIL = LOWER(:P_USER_EMAIL);
+    IF (v_bad > 0) THEN
+        DROP TABLE IF EXISTS APP.TMP_STEPS;
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You cannot make yourself an approver: you would lose your payroll admin role (one role per user).');
+    END IF;
+
+    -- One role per user: one person cannot be the approver of two steps
+    SELECT COUNT(*) INTO :v_bad
+    FROM (SELECT APPROVER_EMAIL FROM APP.TMP_STEPS WHERE APPROVER_EMAIL IS NOT NULL
+          GROUP BY APPROVER_EMAIL HAVING COUNT(DISTINCT APPROVER_ROLE) > 1);
+    IF (v_bad > 0) THEN
+        DROP TABLE IF EXISTS APP.TMP_STEPS;
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'The same person cannot be the approver of two steps (one role per user).');
+    END IF;
+
     BEGIN TRANSACTION;
 
     -- Titles: correct a version that started this month; otherwise close it and add a new one
-    UPDATE CORE.T_P_APPROVAL_STEP s
+    UPDATE APP.T_P_APPROVAL_STEP s
     SET STEP_TITLE = t.STEP_TITLE, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     FROM APP.TMP_STEPS t
     WHERE s.APPROVAL_STEP_ID = t.APPROVAL_STEP_ID AND t.STEP_TITLE IS NOT NULL
       AND t.STEP_TITLE <> t.OLD_TITLE AND t.VALID_FROM_PERIOD_KEY = :v_now;
 
-    INSERT INTO CORE.T_P_APPROVAL_STEP (STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, VALID_FROM_PERIOD_KEY, IS_ACTIVE, MANAGES_EMPLOYEE_CHECKS, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_P_APPROVAL_STEP (STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, VALID_FROM_PERIOD_KEY, IS_ACTIVE, MANAGES_EMPLOYEE_CHECKS, INSERT_BY, UPDATE_BY)
     SELECT STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, :v_now, TRUE, MANAGES_EMPLOYEE_CHECKS, :P_USER_EMAIL, :P_USER_EMAIL
     FROM APP.TMP_STEPS
     WHERE STEP_TITLE IS NOT NULL AND STEP_TITLE <> OLD_TITLE AND VALID_FROM_PERIOD_KEY < :v_now;
 
-    UPDATE CORE.T_P_APPROVAL_STEP s
+    UPDATE APP.T_P_APPROVAL_STEP s
     SET VALID_TO_PERIOD_KEY = :v_prev, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     FROM APP.TMP_STEPS t
     WHERE s.APPROVAL_STEP_ID = t.APPROVAL_STEP_ID AND t.STEP_TITLE IS NOT NULL
       AND t.STEP_TITLE <> t.OLD_TITLE AND t.VALID_FROM_PERIOD_KEY < :v_now;
 
-    -- Approvers
-    INSERT INTO APP.T_D_APP_USER (USER_EMAIL, DISPLAY_NAME, INSERT_BY, UPDATE_BY)
-    SELECT DISTINCT t.APPROVER_EMAIL, COALESCE(t.APPROVER_NAME, t.APPROVER_EMAIL), :P_USER_EMAIL, :P_USER_EMAIL
+    -- Approvers: the previous holders of each assigned role become VIEWER ...
+    UPDATE APP.T_D_APP_USER u
+    SET ROLE_CODE = 'VIEWER', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     FROM APP.TMP_STEPS t
-    WHERE t.APPROVER_EMAIL IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM APP.T_D_APP_USER u WHERE u.USER_EMAIL = t.APPROVER_EMAIL);
+    WHERE t.APPROVER_EMAIL IS NOT NULL AND u.ROLE_CODE = t.APPROVER_ROLE AND u.USER_EMAIL <> t.APPROVER_EMAIL;
 
-    DELETE FROM APP.T_D_APP_USER_ROLE r
-    USING APP.TMP_STEPS t
-    WHERE t.APPROVER_EMAIL IS NOT NULL AND r.ROLE_CODE = t.APPROVER_ROLE AND r.USER_EMAIL <> t.APPROVER_EMAIL;
-
-    INSERT INTO APP.T_D_APP_USER_ROLE (USER_EMAIL, ROLE_CODE, INSERT_BY, UPDATE_BY)
-    SELECT DISTINCT t.APPROVER_EMAIL, t.APPROVER_ROLE, :P_USER_EMAIL, :P_USER_EMAIL
-    FROM APP.TMP_STEPS t
-    WHERE t.APPROVER_EMAIL IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM APP.T_D_APP_USER_ROLE r WHERE r.USER_EMAIL = t.APPROVER_EMAIL AND r.ROLE_CODE = t.APPROVER_ROLE);
+    -- ... the new approver gets the role (created if new)
+    MERGE INTO APP.T_D_APP_USER u
+    USING (SELECT APPROVER_EMAIL, MAX(APPROVER_NAME) AS APPROVER_NAME, MAX(APPROVER_ROLE) AS APPROVER_ROLE
+           FROM APP.TMP_STEPS WHERE APPROVER_EMAIL IS NOT NULL GROUP BY APPROVER_EMAIL) t
+       ON u.USER_EMAIL = t.APPROVER_EMAIL
+    WHEN MATCHED THEN UPDATE SET
+        ROLE_CODE = t.APPROVER_ROLE, IS_ACTIVE = TRUE,
+        DISPLAY_NAME = COALESCE(t.APPROVER_NAME, u.DISPLAY_NAME),
+        UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+    WHEN NOT MATCHED THEN INSERT (USER_EMAIL, DISPLAY_NAME, ROLE_CODE, INSERT_BY, UPDATE_BY)
+        VALUES (t.APPROVER_EMAIL, COALESCE(t.APPROVER_NAME, t.APPROVER_EMAIL), t.APPROVER_ROLE, :P_USER_EMAIL, :P_USER_EMAIL);
 
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
-    SELECT 'CORE.T_P_APPROVAL_STEP', OBJECT_CONSTRUCT('STEP_ORDER', STEP_ORDER), 'UPDATE',
+    SELECT 'APP.T_P_APPROVAL_STEP', OBJECT_CONSTRUCT('STEP_ORDER', STEP_ORDER), 'UPDATE',
            OBJECT_CONSTRUCT('STEP_TITLE', OLD_TITLE),
            OBJECT_CONSTRUCT('STEP_TITLE', STEP_TITLE, 'APPROVER_EMAIL', APPROVER_EMAIL),
            :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL

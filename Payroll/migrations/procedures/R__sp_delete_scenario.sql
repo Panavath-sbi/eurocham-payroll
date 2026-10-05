@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  Deletes the scenario's APP.T_F_APPROVAL_STEP_STATE rows (the action log was dropped).
+   2026-10-02  V1.5.0: approval rows in APP.T_F_APPROVAL; no request, employee-check,
+               cost-allocation or adjustment tables any more; CORE -> APP; one role per user.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -22,7 +24,7 @@
    ===================================================================================== */
 
 /* Refused for the ACTUAL scenario, a scenario IN_APPROVAL and the official budget.
-   Deletes the scenario's pay lines, allocations, inputs, adjustments, employee terms,
+   Deletes the scenario's pay lines, allocations, inputs, employee terms,
    planned hires, approval history and months, then the scenario itself.
    Roles: PAYROLL_ADMIN or BUDGET_EDITOR. */
 USE DATABASE PAYROLL_DB;
@@ -43,8 +45,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND r.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
     END IF;
@@ -67,16 +68,10 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    DELETE FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK
-    WHERE REQUEST_ID IN (SELECT REQUEST_ID FROM APP.T_F_APPROVAL_REQUEST WHERE SCENARIO_ID = :P_SCENARIO_ID);
-    DELETE FROM APP.T_F_APPROVAL_STEP_STATE
-    WHERE REQUEST_ID IN (SELECT REQUEST_ID FROM APP.T_F_APPROVAL_REQUEST WHERE SCENARIO_ID = :P_SCENARIO_ID);
-    DELETE FROM APP.T_F_APPROVAL_REQUEST       WHERE SCENARIO_ID = :P_SCENARIO_ID;
-    DELETE FROM CORE.T_F_PAYROLL_LINE          WHERE SCENARIO_ID = :P_SCENARIO_ID;
-    DELETE FROM CORE.T_F_COST_ALLOCATION       WHERE SCENARIO_ID = :P_SCENARIO_ID;
+    DELETE FROM APP.T_F_APPROVAL               WHERE SCENARIO_ID = :P_SCENARIO_ID;
+    DELETE FROM APP.T_F_PAYROLL_LINE          WHERE SCENARIO_ID = :P_SCENARIO_ID;
     DELETE FROM APP.T_F_FUND_ALLOCATION        WHERE SCENARIO_ID = :P_SCENARIO_ID;
     DELETE FROM APP.T_F_DEPARTMENT_ALLOCATION  WHERE SCENARIO_ID = :P_SCENARIO_ID;
-    DELETE FROM APP.T_F_PAYROLL_ADJUSTMENT     WHERE SCENARIO_ID = :P_SCENARIO_ID;
     DELETE FROM APP.T_F_PAYROLL_INPUT          WHERE SCENARIO_ID = :P_SCENARIO_ID;
     DELETE FROM APP.T_D_SCENARIO_EMPLOYEE      WHERE SCENARIO_ID = :P_SCENARIO_ID;
     DELETE FROM APP.T_F_SCENARIO_PERIOD        WHERE SCENARIO_ID = :P_SCENARIO_ID;

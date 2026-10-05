@@ -9,6 +9,9 @@
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
    2026-10-02  Approval reset uses APP.T_F_APPROVAL_STEP_STATE (no more action log) and is
                written to T_F_CHANGE_LOG.
+   2026-10-02  V1.5.0: approvals in APP.T_F_APPROVAL; changed employees' checks (on their
+               input row) go back to PENDING with the comment cleared; CORE -> APP;
+               one role per user.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -58,7 +61,6 @@ DECLARE
     v_unknown     INT;
     v_overrides   INT;
     v_changed     INT;
-    v_req         INT;
 BEGIN
     -- Scenario and period
     SELECT MAX(s.SCENARIO_TYPE), MAX(s.SCENARIO_STATUS), MAX(x.PERIOD_STATUS), MAX(x.WORKING_DAYS)
@@ -76,9 +78,8 @@ BEGIN
     -- Role
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    JOIN APP.T_D_APP_USER_ROLE r ON r.USER_EMAIL = u.USER_EMAIL
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (r.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND r.ROLE_CODE = 'BUDGET_EDITOR'));
+      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to edit this scenario.');
     END IF;
@@ -204,35 +205,30 @@ BEGIN
 
     -- ACTUAL: numbers changed, so started approvals start over
     IF (v_type = 'ACTUAL') THEN
-        SELECT MAX(REQUEST_ID) INTO :v_req
-        FROM APP.T_F_APPROVAL_REQUEST
-        WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY AND REQUEST_STATUS = 'IN_PROGRESS';
+        -- Every approved step goes back to PENDING (logged first, while still APPROVED)
+        INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+        SELECT 'APP.T_F_APPROVAL',
+               OBJECT_CONSTRUCT('SCENARIO_ID', SCENARIO_ID, 'PERIOD_KEY', PERIOD_KEY, 'STEP_ORDER', STEP_ORDER), 'UPDATE',
+               OBJECT_CONSTRUCT('STEP_STATUS', 'APPROVED'),
+               OBJECT_CONSTRUCT('ACTION_TYPE', 'RESET', 'STEP_STATUS', 'PENDING', 'COMMENT', 'Monthly inputs changed'),
+               :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
+        FROM APP.T_F_APPROVAL
+        WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY AND STEP_STATUS = 'APPROVED';
 
-        IF (v_req IS NOT NULL) THEN
-            -- Every approved step goes back to PENDING (logged first, while still APPROVED)
-            INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
-            SELECT 'APP.T_F_APPROVAL_STEP_STATE', OBJECT_CONSTRUCT('REQUEST_ID', REQUEST_ID, 'STEP_ORDER', STEP_ORDER), 'UPDATE',
-                   OBJECT_CONSTRUCT('STEP_STATUS', 'APPROVED'),
-                   OBJECT_CONSTRUCT('ACTION_TYPE', 'RESET', 'STEP_STATUS', 'PENDING', 'COMMENT', 'Monthly inputs changed'),
-                   :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
-            FROM APP.T_F_APPROVAL_STEP_STATE
-            WHERE REQUEST_ID = :v_req AND STEP_STATUS = 'APPROVED';
+        UPDATE APP.T_F_APPROVAL
+        SET STEP_STATUS = 'PENDING', LAST_ACTION = 'RESET', ACTED_BY = 'SYSTEM', ACTED_AT = CURRENT_TIMESTAMP,
+            STEP_COMMENT = 'Monthly inputs changed by ' || :P_USER_EMAIL,
+            UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+        WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY AND STEP_STATUS = 'APPROVED';
 
-            UPDATE APP.T_F_APPROVAL_STEP_STATE
-            SET STEP_STATUS = 'PENDING', LAST_ACTION = 'RESET', ACTED_BY = 'SYSTEM', ACTED_AT = CURRENT_TIMESTAMP,
-                STEP_COMMENT = 'Monthly inputs changed by ' || :P_USER_EMAIL,
-                UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-            WHERE REQUEST_ID = :v_req AND STEP_STATUS = 'APPROVED';
-
-            -- The changed employees must be checked again
-            UPDATE APP.T_F_APPROVAL_EMPLOYEE_CHECK
-            SET CHECK_STATUS = 'PENDING', CHECKED_BY = NULL,
-                UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-            WHERE REQUEST_ID = :v_req
-              AND CHECK_STATUS <> 'PENDING'
-              AND EMPLOYEE_ID IN (SELECT EMPLOYEE_ID FROM APP.TMP_PAYROLL_INPUT
-                                  WHERE NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES);
-        END IF;
+        -- The changed employees must be checked again; an old rejection reason no longer applies
+        UPDATE APP.T_F_PAYROLL_INPUT
+        SET CHECK_STATUS = 'PENDING', CHECK_COMMENT = NULL, CHECKED_BY = NULL,
+            UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+        WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY
+          AND COALESCE(CHECK_STATUS, 'PENDING') <> 'PENDING'
+          AND EMPLOYEE_ID IN (SELECT EMPLOYEE_ID FROM APP.TMP_PAYROLL_INPUT
+                              WHERE NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES);
 
         UPDATE APP.T_F_SCENARIO_PERIOD
         SET PERIOD_STATUS = 'OPEN', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL

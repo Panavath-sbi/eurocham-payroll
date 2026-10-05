@@ -1,6 +1,7 @@
 /* =====================================================================================
-   R - CORE VIEWS
-   V_D_EMPLOYEE, V_D_SCENARIO, V_F_PAYROLL_SUMMARY, V_F_APPROVAL_EVENT.
+   R - BASE VIEWS (schema RPT)
+   V_D_EMPLOYEE, V_D_SCENARIO, V_F_PAYROLL_SUMMARY, V_F_COST_ALLOCATION, V_F_APPROVAL_EVENT.
+   Run this file before R__views_rpt.sql and R__views_pbi.sql (they use these views).
    =====================================================================================
 
    HISTORY
@@ -8,14 +9,19 @@
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-10-02  V_F_APPROVAL_EVENT reads the approval history from APP.T_F_CHANGE_LOG
                (APP.T_F_APPROVAL_ACTION was dropped in V1.4.0).
+   2026-10-02  V1.5.0: the views move from CORE to RPT (CORE is removed; tables are in APP).
+               New V_F_COST_ALLOCATION replaces the dropped T_F_COST_ALLOCATION table.
+               V_F_APPROVAL_EVENT reads the change-log rows of APP.T_F_APPROVAL (by
+               scenario + period; actions logged before V1.5.0 used a request id and are
+               no longer listed).
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
    ===================================================================================== */
 
 /* =====================================================================================
-   5. CORE - DIMENSION AND FACT VIEWS (V_D_ / V_F_)
+   5. BASE DIMENSION AND FACT VIEWS (V_D_ / V_F_)
    ===================================================================================== */
 
-CREATE OR REPLACE VIEW CORE.V_D_EMPLOYEE
+CREATE OR REPLACE VIEW RPT.V_D_EMPLOYEE
 COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. Bank details are deliberately excluded.'
 AS
 SELECT
@@ -51,7 +57,7 @@ SELECT
 FROM APP.T_D_EMPLOYEE e
 JOIN APP.T_D_EMPLOYEE_CONTRACT c ON c.EMPLOYEE_ID = e.EMPLOYEE_ID;
 
-CREATE OR REPLACE VIEW CORE.V_D_SCENARIO
+CREATE OR REPLACE VIEW RPT.V_D_SCENARIO
 COMMENT = 'Scenario dimension for reporting: actual payroll, budget scenarios and forecast versions.'
 AS
 SELECT
@@ -66,7 +72,7 @@ SELECT
     DESCRIPTION
 FROM APP.T_D_SCENARIO;
 
-CREATE OR REPLACE VIEW CORE.V_F_PAYROLL_SUMMARY
+CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_SUMMARY
 COMMENT = 'Grain: one row per scenario x period x employee. Totals aggregated from T_F_PAYROLL_LINE by pay component category.'
 AS
 SELECT
@@ -88,23 +94,40 @@ SELECT
     ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYER_COST', l.AMOUNT_USD, 0)), 2)              AS OTHER_EMPLOYER_COST_USD,
     ROUND(GROSS_PAY_USD + NSSF_ER_USD + OTHER_EMPLOYER_COST_USD, 2)                 AS EMPLOYER_COST_USD,
     MAX(l.INSERT_DATE)                                                              AS CALCULATED_AT
-FROM CORE.T_F_PAYROLL_LINE l
-JOIN CORE.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
+FROM APP.T_F_PAYROLL_LINE l
+JOIN APP.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
 GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID;
 
-CREATE OR REPLACE VIEW CORE.V_F_APPROVAL_EVENT
-COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log, with the scenario and period it relates to.'
+CREATE OR REPLACE VIEW RPT.V_F_COST_ALLOCATION
+COMMENT = 'Grain: one row per scenario x period x employee x fund x department. Employee gross pay and employer cost (V_F_PAYROLL_SUMMARY) x fund share x department share. Employees without both a fund and a department split have no rows. Replaces the T_F_COST_ALLOCATION table.'
 AS
 SELECT
-    c.CHANGE_ID                      AS ACTION_ID,
-    c.RECORD_KEY:REQUEST_ID::INT     AS REQUEST_ID,
-    r.SCENARIO_ID,
-    r.PERIOD_KEY,
-    c.RECORD_KEY:STEP_ORDER::INT     AS STEP_ORDER,
-    c.NEW_VALUES:ACTION_TYPE::TEXT   AS ACTION_TYPE,
-    c.CHANGED_BY                     AS ACTED_BY,
-    c.INSERT_DATE                    AS ACTED_AT,
-    c.NEW_VALUES:COMMENT::TEXT       AS ACTION_COMMENT
+    s.SCENARIO_ID,
+    s.PERIOD_KEY,
+    s.EMPLOYEE_ID,
+    f.FUND_CODE,
+    d.DEPARTMENT_CODE,
+    s.ENTITY_CODE,
+    (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100)                                     AS ALLOCATION_SHARE,
+    ROUND(s.GROSS_PAY_USD     * (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100), 2)     AS GROSS_PAY_USD,
+    ROUND(s.EMPLOYER_COST_USD * (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100), 2)     AS EMPLOYER_COST_USD
+FROM RPT.V_F_PAYROLL_SUMMARY s
+JOIN APP.T_F_FUND_ALLOCATION f
+  ON f.SCENARIO_ID = s.SCENARIO_ID AND f.PERIOD_KEY = s.PERIOD_KEY AND f.EMPLOYEE_ID = s.EMPLOYEE_ID
+JOIN APP.T_F_DEPARTMENT_ALLOCATION d
+  ON d.SCENARIO_ID = s.SCENARIO_ID AND d.PERIOD_KEY = s.PERIOD_KEY AND d.EMPLOYEE_ID = s.EMPLOYEE_ID;
+
+CREATE OR REPLACE VIEW RPT.V_F_APPROVAL_EVENT
+COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log. PERIOD_KEY 0 = a whole budget.'
+AS
+SELECT
+    c.CHANGE_ID                       AS ACTION_ID,
+    c.RECORD_KEY:SCENARIO_ID::INT     AS SCENARIO_ID,
+    c.RECORD_KEY:PERIOD_KEY::INT      AS PERIOD_KEY,
+    c.RECORD_KEY:STEP_ORDER::INT      AS STEP_ORDER,
+    c.NEW_VALUES:ACTION_TYPE::TEXT    AS ACTION_TYPE,
+    c.CHANGED_BY                      AS ACTED_BY,
+    c.INSERT_DATE                     AS ACTED_AT,
+    c.NEW_VALUES:COMMENT::TEXT        AS ACTION_COMMENT
 FROM APP.T_F_CHANGE_LOG c
-JOIN APP.T_F_APPROVAL_REQUEST r ON r.REQUEST_ID = c.RECORD_KEY:REQUEST_ID::INT
-WHERE c.TABLE_NAME = 'APP.T_F_APPROVAL_STEP_STATE';
+WHERE c.TABLE_NAME = 'APP.T_F_APPROVAL';

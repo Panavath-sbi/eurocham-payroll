@@ -8,6 +8,11 @@
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-10-02  Approvals use APP.T_F_APPROVAL_STEP_STATE (one row per step) instead of the
                dropped action log; employee checks have no step column (step 2 only).
+   2026-10-02  V1.5.0: all tables in APP; FX rates on T_D_PERIOD; one role per user and the
+               signature on T_D_APP_USER (users are merged, because V1.5.0 already created
+               the users that had a signature); approvals in T_F_APPROVAL by scenario +
+               period; employee checks on T_F_PAYROLL_INPUT; no adjustment and no stored
+               cost allocation (it is the view RPT.V_F_COST_ALLOCATION).
    Part D: dummy working days and FX rates. Part B: employees, scenarios, inputs,
    approvals and fact rows. Part C: check queries with expected results.
    ===================================================================================== */
@@ -17,7 +22,7 @@
    ===================================================================================== */
 
 -- D.1 Working days (dummy values; normally set on the Settings page)
-UPDATE CORE.T_D_PERIOD p
+UPDATE APP.T_D_PERIOD p
 SET WORKING_DAYS = v.WD, UPDATE_DATE = CURRENT_TIMESTAMP
 FROM (VALUES
     (202601, 22), (202602, 20), (202603, 20), (202604, 22), (202605, 21), (202606, 21),
@@ -25,7 +30,7 @@ FROM (VALUES
 ) AS v (PK, WD)
 WHERE p.PERIOD_KEY = v.PK;
 
-UPDATE CORE.T_D_PERIOD p
+UPDATE APP.T_D_PERIOD p
 SET BUDGET_WORKING_DAYS = v.WD, UPDATE_DATE = CURRENT_TIMESTAMP
 FROM (VALUES
     (202701, 20), (202702, 20), (202703, 20), (202704, 20), (202705, 20), (202706, 22),
@@ -33,31 +38,32 @@ FROM (VALUES
 ) AS v (PK, WD)
 WHERE p.PERIOD_KEY = v.PK;
 
--- D.2 Exchange rates (dummy)
-INSERT INTO CORE.T_P_FX_RATE (PERIOD_KEY, RATE_TYPE, EXCHANGE_RATE, SOURCE_NOTE) VALUES
-    (202609, 'NBC',  4080, 'Dummy value'),
-    (202609, 'NSSF', 4050, 'Dummy value'),
-    (202610, 'NBC',  4085, 'Dummy value'),
-    (202610, 'NSSF', 4050, 'Dummy value');
+-- D.2 Exchange rates (dummy; normally entered on the Monthly Inputs page)
+UPDATE APP.T_D_PERIOD p
+SET FX_RATE_NBC = v.NBC, FX_RATE_NSSF = v.NSSF, UPDATE_DATE = CURRENT_TIMESTAMP
+FROM (VALUES
+    (202609, 4080, 4050),
+    (202610, 4085, 4050)
+) AS v (PK, NBC, NSSF)
+WHERE p.PERIOD_KEY = v.PK;
 
 /* =====================================================================================
    PART B - DUMMY DATA
    ===================================================================================== */
 
--- B.1 App users and roles
-INSERT INTO APP.T_D_APP_USER (USER_EMAIL, DISPLAY_NAME) VALUES
-    ('admin@example.org',     'Payroll Admin'),
-    ('clerk@example.org',     'Payroll Clerk'),
-    ('hr@example.org',        'HR Manager'),
-    ('treasurer@example.org', 'Treasurer'),
-    ('director@example.org',  'Director');
-
-INSERT INTO APP.T_D_APP_USER_ROLE (USER_EMAIL, ROLE_CODE) VALUES
-    ('admin@example.org',     'PAYROLL_ADMIN'),
-    ('clerk@example.org',     'BUDGET_EDITOR'),
-    ('hr@example.org',        'HR_MANAGER'),
-    ('treasurer@example.org', 'TREASURER'),
-    ('director@example.org',  'DIRECTOR');
+-- B.1 App users, one role each. MERGE because V1.5.0 already created the users that had
+--     a dummy signature (hr, director, treasurer2); their signature is kept.
+MERGE INTO APP.T_D_APP_USER t
+USING (SELECT * FROM VALUES
+    ('admin@example.org',     'Payroll Admin', 'PAYROLL_ADMIN'),
+    ('clerk@example.org',     'Payroll Clerk', 'BUDGET_EDITOR'),
+    ('hr@example.org',        'HR Manager',    'HR_MANAGER'),
+    ('treasurer@example.org', 'Treasurer',     'TREASURER'),
+    ('director@example.org',  'Director',      'DIRECTOR')
+    AS v (USER_EMAIL, DISPLAY_NAME, ROLE_CODE)) s
+   ON t.USER_EMAIL = s.USER_EMAIL
+WHEN MATCHED THEN UPDATE SET DISPLAY_NAME = s.DISPLAY_NAME, ROLE_CODE = s.ROLE_CODE, IS_ACTIVE = TRUE
+WHEN NOT MATCHED THEN INSERT (USER_EMAIL, DISPLAY_NAME, ROLE_CODE) VALUES (s.USER_EMAIL, s.DISPLAY_NAME, s.ROLE_CODE);
 
 -- B.2 Scenarios: the actual payroll, two budget scenarios for 2027, one forecast for 2026
 INSERT INTO APP.T_D_SCENARIO (SCENARIO_TYPE, SCENARIO_NAME, FISCAL_YEAR, SCENARIO_STATUS, IS_OFFICIAL, FORECAST_AS_OF_PERIOD_KEY, DESCRIPTION) VALUES
@@ -107,20 +113,20 @@ FROM (VALUES
     (202610, 'OPEN',      4085, 4050, NULL,                             NULL)
 ) AS v (PK, STATUS, NBC, NSSF, FIN_AT, FIN_BY)
 JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = 'Actual payroll'
-JOIN CORE.T_D_PERIOD p  ON p.PERIOD_KEY = v.PK;
+JOIN APP.T_D_PERIOD p  ON p.PERIOD_KEY = v.PK;
 
 --     Budgets: all 12 months of 2027, using the budget calendar and an assumed FX rate.
 INSERT INTO APP.T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY, PERIOD_STATUS, WORKING_DAYS, FX_RATE_NBC, FX_RATE_NSSF)
 SELECT s.SCENARIO_ID, p.PERIOD_KEY, IFF(s.SCENARIO_STATUS = 'APPROVED', 'LOCKED', 'DRAFT'), p.BUDGET_WORKING_DAYS, 4100, 4050
 FROM APP.T_D_SCENARIO s
-JOIN CORE.T_D_PERIOD p ON p.YEAR = s.FISCAL_YEAR
+JOIN APP.T_D_PERIOD p ON p.YEAR = s.FISCAL_YEAR
 WHERE s.SCENARIO_TYPE = 'BUDGET';
 
 --     Forecast: Oct-Dec 2026 (Jan-Sep come from actuals).
 INSERT INTO APP.T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY, PERIOD_STATUS, WORKING_DAYS, FX_RATE_NBC, FX_RATE_NSSF)
 SELECT s.SCENARIO_ID, p.PERIOD_KEY, 'DRAFT', p.WORKING_DAYS, 4085, 4050
 FROM APP.T_D_SCENARIO s
-JOIN CORE.T_D_PERIOD p ON p.PERIOD_KEY BETWEEN 202610 AND 202612
+JOIN APP.T_D_PERIOD p ON p.PERIOD_KEY BETWEEN 202610 AND 202612
 WHERE s.SCENARIO_NAME = 'Forecast 2026 Q3';
 
 -- B.6 Scenario employee terms (budgets and forecast)
@@ -191,53 +197,39 @@ FROM (VALUES
 JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = 'Actual payroll'
 JOIN APP.T_D_EMPLOYEE e ON e.RESOURCE_CODE = v.RC;
 
--- B.9 An adjustment in Oct correcting Sep
-INSERT INTO APP.T_F_PAYROLL_ADJUSTMENT (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, PAY_COMPONENT_CODE, AMOUNT_USD, REFERENCE_PERIOD_KEY, REASON)
-SELECT s.SCENARIO_ID, 202610, e.EMPLOYEE_ID, 'ADJUSTMENT', 20, 202609, 'September transport allowance was missed'
-FROM APP.T_D_SCENARIO s
-JOIN APP.T_D_EMPLOYEE e ON e.RESOURCE_CODE = 'HR-KH-003'
-WHERE s.SCENARIO_NAME = 'Actual payroll';
-
--- B.10 Approval requests: Sep approved, Oct in progress, Budget 2027 Base approved
-INSERT INTO APP.T_F_APPROVAL_REQUEST (SCENARIO_ID, PERIOD_KEY, REQUEST_STATUS, COMPLETED_AT, INSERT_BY)
-SELECT s.SCENARIO_ID, v.PK, v.STATUS, v.DONE, 'admin@example.org'
+-- B.10 Approvals, one row per step: Sep and the Base budget (period 0) fully approved,
+--      Oct approved by step 1 only
+INSERT INTO APP.T_F_APPROVAL
+    (SCENARIO_ID, PERIOD_KEY, STEP_ORDER, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTED_AT, STEP_COMMENT)
+SELECT s.SCENARIO_ID, v.PK, v.STEP, v.STATUS, v.ACTION, v.BY_USER, v.AT, v.CMT
 FROM (VALUES
-    ('Actual payroll',   202609::INT, 'APPROVED',    '2026-09-25 09:30:00'::TIMESTAMP),
-    ('Actual payroll',   202610,      'IN_PROGRESS', NULL),
-    ('Budget 2027 Base', NULL,        'APPROVED',    '2026-09-10 16:00:00')
-) AS v (SCEN, PK, STATUS, DONE)
+    ('Actual payroll',   202609, 1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-24 09:00:00'::TIMESTAMP, NULL::TEXT),
+    ('Actual payroll',   202609, 2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-24 15:00:00', NULL),
+    ('Actual payroll',   202609, 3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-25 09:30:00', 'Approved'),
+    ('Actual payroll',   202610, 1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-10-26 10:00:00', 'Inputs checked'),
+    ('Actual payroll',   202610, 2, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
+    ('Actual payroll',   202610, 3, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
+    ('Budget 2027 Base', 0,      1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-08 11:00:00', NULL),
+    ('Budget 2027 Base', 0,      2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-09 11:00:00', NULL),
+    ('Budget 2027 Base', 0,      3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-10 16:00:00', 'Approved as official 2027')
+) AS v (SCEN, PK, STEP, STATUS, ACTION, BY_USER, AT, CMT)
 JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = v.SCEN;
 
--- One row per approval step: Sep and the Base budget fully approved, Oct approved by step 1 only
-INSERT INTO APP.T_F_APPROVAL_STEP_STATE
-    (REQUEST_ID, STEP_ORDER, STEP_STATUS, LAST_ACTION, ACTED_BY, ACTED_AT, STEP_COMMENT)
-SELECT r.REQUEST_ID, v.STEP, v.STATUS, v.ACTION, v.BY_USER, v.AT, v.CMT
-FROM (VALUES
-    ('Actual payroll',   202609::INT, 1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-24 09:00:00'::TIMESTAMP, NULL::TEXT),
-    ('Actual payroll',   202609,      2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-24 15:00:00', NULL),
-    ('Actual payroll',   202609,      3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-25 09:30:00', 'Approved'),
-    ('Actual payroll',   202610,      1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-10-26 10:00:00', 'Inputs checked'),
-    ('Actual payroll',   202610,      2, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
-    ('Actual payroll',   202610,      3, 'PENDING',  NULL,      NULL,                    NULL,                  NULL),
-    ('Budget 2027 Base', NULL,        1, 'APPROVED', 'APPROVE', 'hr@example.org',        '2026-09-08 11:00:00', NULL),
-    ('Budget 2027 Base', NULL,        2, 'APPROVED', 'APPROVE', 'treasurer@example.org', '2026-09-09 11:00:00', NULL),
-    ('Budget 2027 Base', NULL,        3, 'APPROVED', 'APPROVE', 'director@example.org',  '2026-09-10 16:00:00', 'Approved as official 2027')
-) AS v (SCEN, PK, STEP, STATUS, ACTION, BY_USER, AT, CMT)
-JOIN APP.T_D_SCENARIO s          ON s.SCENARIO_NAME = v.SCEN
-JOIN APP.T_F_APPROVAL_REQUEST r  ON r.SCENARIO_ID = s.SCENARIO_ID AND EQUAL_NULL(r.PERIOD_KEY, v.PK);
-
--- B.11 Per-employee checks on the Oct request (made by step 2, the Treasurer): one checked,
---      one rejected, one still pending
-INSERT INTO APP.T_F_APPROVAL_EMPLOYEE_CHECK (REQUEST_ID, EMPLOYEE_ID, CHECK_STATUS, CHECK_COMMENT, CHECKED_BY)
-SELECT r.REQUEST_ID, e.EMPLOYEE_ID, v.STATUS, v.CMT, v.BY_USER
-FROM (VALUES
-    ('HR-KH-001', 'CHECKED',  NULL::TEXT,                             'treasurer@example.org'),
-    ('HR-FR-002', 'REJECTED', 'Overtime day not supported by a form', 'treasurer@example.org'),
-    ('HR-KH-003', 'PENDING',  NULL,                                   NULL)
-) AS v (RC, STATUS, CMT, BY_USER)
-JOIN APP.T_D_SCENARIO s          ON s.SCENARIO_NAME = 'Actual payroll'
-JOIN APP.T_F_APPROVAL_REQUEST r  ON r.SCENARIO_ID = s.SCENARIO_ID AND r.PERIOD_KEY = 202610
-JOIN APP.T_D_EMPLOYEE e          ON e.RESOURCE_CODE = v.RC;
+-- B.11 Employee checks on the monthly input rows (made by step 2, the Treasurer):
+--      Sep all checked (finalized); Oct one checked, one rejected, one still pending
+UPDATE APP.T_F_PAYROLL_INPUT i
+SET CHECK_STATUS = v.STATUS, CHECK_COMMENT = v.CMT, CHECKED_BY = v.BY_USER
+FROM (SELECT s.SCENARIO_ID, x.PK, e.EMPLOYEE_ID, x.STATUS, x.CMT, x.BY_USER
+      FROM (SELECT * FROM VALUES
+          (202609, 'HR-KH-001', 'CHECKED',  NULL::TEXT,                             'treasurer@example.org'),
+          (202609, 'HR-FR-002', 'CHECKED',  NULL,                                   'treasurer@example.org'),
+          (202609, 'HR-KH-003', 'CHECKED',  NULL,                                   'treasurer@example.org'),
+          (202610, 'HR-KH-001', 'CHECKED',  NULL,                                   'treasurer@example.org'),
+          (202610, 'HR-FR-002', 'REJECTED', 'Overtime day not supported by a form', 'treasurer@example.org')
+          AS x (PK, RC, STATUS, CMT, BY_USER)) x
+      JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = 'Actual payroll'
+      JOIN APP.T_D_EMPLOYEE e ON e.RESOURCE_CODE = x.RC) v
+WHERE i.SCENARIO_ID = v.SCENARIO_ID AND i.PERIOD_KEY = v.PK AND i.EMPLOYEE_ID = v.EMPLOYEE_ID;
 
 -- B.12 One change log entry (the Oct absence edit)
 INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY)
@@ -253,7 +245,7 @@ WHERE s.SCENARIO_NAME = 'Actual payroll';
 
 -- B.13 Fact lines for HR-KH-001, Sep and Oct 2026 (normally written by the calculation)
 --      Sep: no absence, NBC 4080.  Oct: 2 days unpaid leave, NBC 4085.  NSSF rate 4050.
-INSERT INTO CORE.T_F_PAYROLL_LINE
+INSERT INTO APP.T_F_PAYROLL_LINE
     (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, PAY_COMPONENT_CODE, EMPLOYEE_VERSION_KEY, ENTITY_CODE,
      QUANTITY, RATE, AMOUNT_USD, AMOUNT_KHR, FX_RATE_APPLIED, CALCULATION_ID)
 SELECT s.SCENARIO_ID, v.PK, e.EMPLOYEE_ID, v.COMP, c.CONTRACT_ID, 'ECCC',
@@ -289,18 +281,6 @@ JOIN APP.T_D_EMPLOYEE_CONTRACT c
   ON c.EMPLOYEE_ID = e.EMPLOYEE_ID
  AND v.PK BETWEEN c.VALID_FROM_PERIOD_KEY AND COALESCE(c.VALID_TO_PERIOD_KEY, 999912);
 
--- B.14 Cost allocation for HR-KH-001, Oct 2026 (ECCC 100% x Admin 60% / Advocacy 40%)
-INSERT INTO CORE.T_F_COST_ALLOCATION
-    (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, FUND_CODE, DEPARTMENT_CODE, ENTITY_CODE,
-     ALLOCATION_SHARE, GROSS_PAY_USD, EMPLOYER_COST_USD, CALCULATION_ID)
-SELECT s.SCENARIO_ID, 202610, e.EMPLOYEE_ID, 'ECCC', v.DEPT, 'ECCC', v.SHARE, v.GROSS, v.COST, 'DUMMY-202610'
-FROM (VALUES
-    ('ADMIN',    0.6, 545.45, 572.98),
-    ('ADVOCACY', 0.4, 363.64, 381.98)
-) AS v (DEPT, SHARE, GROSS, COST)
-JOIN APP.T_D_SCENARIO s ON s.SCENARIO_NAME = 'Actual payroll'
-JOIN APP.T_D_EMPLOYEE e ON e.RESOURCE_CODE = 'HR-KH-001';
-
 /* =====================================================================================
    PART C - CHECKS (run and review the results)
    ===================================================================================== */
@@ -311,25 +291,23 @@ SELECT COUNT(*)                                                         AS PERIO
        MAX(PERIOD_KEY)                                                  AS LAST_PERIOD,
        COUNT(*) = DATEDIFF(MONTH, MIN(PERIOD_START_DATE), MAX(PERIOD_START_DATE)) + 1 AS NO_GAPS,
        COUNT(*) = COUNT(DISTINCT PERIOD_KEY)                            AS NO_DUPLICATES
-FROM CORE.T_D_PERIOD;
+FROM APP.T_D_PERIOD;
 
 -- C.2 Any missing months between the first and last period (expect no rows)
 SELECT DATEADD(MONTH, 1, PERIOD_START_DATE) AS MISSING_AFTER
-FROM CORE.T_D_PERIOD
+FROM APP.T_D_PERIOD
 QUALIFY LEAD(PERIOD_START_DATE) OVER (ORDER BY PERIOD_START_DATE) <> DATEADD(MONTH, 1, PERIOD_START_DATE);
 
 -- C.3 Row counts per table
-SELECT 'CORE.T_D_PERIOD'                 AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM CORE.T_D_PERIOD                UNION ALL
-SELECT 'CORE.T_D_ENTITY',                 COUNT(*) FROM CORE.T_D_ENTITY                 UNION ALL
-SELECT 'CORE.T_D_FUND',                   COUNT(*) FROM CORE.T_D_FUND                   UNION ALL
-SELECT 'CORE.T_D_DEPARTMENT',             COUNT(*) FROM CORE.T_D_DEPARTMENT             UNION ALL
-SELECT 'CORE.T_D_PAY_COMPONENT',          COUNT(*) FROM CORE.T_D_PAY_COMPONENT          UNION ALL
-SELECT 'CORE.T_P_STATUTORY_PARAMETER',    COUNT(*) FROM CORE.T_P_STATUTORY_PARAMETER    UNION ALL
-SELECT 'CORE.T_P_TAX_BRACKET',            COUNT(*) FROM CORE.T_P_TAX_BRACKET            UNION ALL
-SELECT 'CORE.T_P_FX_RATE',                COUNT(*) FROM CORE.T_P_FX_RATE                UNION ALL
-SELECT 'CORE.T_P_APPROVAL_STEP',          COUNT(*) FROM CORE.T_P_APPROVAL_STEP          UNION ALL
+SELECT 'APP.T_D_PERIOD'                 AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM APP.T_D_PERIOD                UNION ALL
+SELECT 'APP.T_D_ENTITY',                 COUNT(*) FROM APP.T_D_ENTITY                 UNION ALL
+SELECT 'APP.T_D_FUND',                   COUNT(*) FROM APP.T_D_FUND                   UNION ALL
+SELECT 'APP.T_D_DEPARTMENT',             COUNT(*) FROM APP.T_D_DEPARTMENT             UNION ALL
+SELECT 'APP.T_D_PAY_COMPONENT',          COUNT(*) FROM APP.T_D_PAY_COMPONENT          UNION ALL
+SELECT 'APP.T_P_STATUTORY_PARAMETER',    COUNT(*) FROM APP.T_P_STATUTORY_PARAMETER    UNION ALL
+SELECT 'APP.T_P_TAX_BRACKET',            COUNT(*) FROM APP.T_P_TAX_BRACKET            UNION ALL
+SELECT 'APP.T_P_APPROVAL_STEP',          COUNT(*) FROM APP.T_P_APPROVAL_STEP          UNION ALL
 SELECT 'APP.T_D_APP_USER',                COUNT(*) FROM APP.T_D_APP_USER                UNION ALL
-SELECT 'APP.T_D_APP_USER_ROLE',           COUNT(*) FROM APP.T_D_APP_USER_ROLE           UNION ALL
 SELECT 'APP.T_D_SCENARIO',                COUNT(*) FROM APP.T_D_SCENARIO                UNION ALL
 SELECT 'APP.T_D_EMPLOYEE',                COUNT(*) FROM APP.T_D_EMPLOYEE                UNION ALL
 SELECT 'APP.T_D_EMPLOYEE_CONTRACT',       COUNT(*) FROM APP.T_D_EMPLOYEE_CONTRACT       UNION ALL
@@ -338,30 +316,40 @@ SELECT 'APP.T_F_SCENARIO_PERIOD',         COUNT(*) FROM APP.T_F_SCENARIO_PERIOD 
 SELECT 'APP.T_F_PAYROLL_INPUT',           COUNT(*) FROM APP.T_F_PAYROLL_INPUT           UNION ALL
 SELECT 'APP.T_F_FUND_ALLOCATION',         COUNT(*) FROM APP.T_F_FUND_ALLOCATION         UNION ALL
 SELECT 'APP.T_F_DEPARTMENT_ALLOCATION',   COUNT(*) FROM APP.T_F_DEPARTMENT_ALLOCATION   UNION ALL
-SELECT 'APP.T_F_PAYROLL_ADJUSTMENT',      COUNT(*) FROM APP.T_F_PAYROLL_ADJUSTMENT      UNION ALL
-SELECT 'APP.T_F_APPROVAL_REQUEST',        COUNT(*) FROM APP.T_F_APPROVAL_REQUEST        UNION ALL
-SELECT 'APP.T_F_APPROVAL_STEP_STATE',     COUNT(*) FROM APP.T_F_APPROVAL_STEP_STATE     UNION ALL
-SELECT 'APP.T_F_APPROVAL_EMPLOYEE_CHECK', COUNT(*) FROM APP.T_F_APPROVAL_EMPLOYEE_CHECK UNION ALL
+SELECT 'APP.T_F_APPROVAL',                COUNT(*) FROM APP.T_F_APPROVAL                UNION ALL
 SELECT 'APP.T_F_CHANGE_LOG',              COUNT(*) FROM APP.T_F_CHANGE_LOG              UNION ALL
-SELECT 'CORE.T_F_PAYROLL_LINE',           COUNT(*) FROM CORE.T_F_PAYROLL_LINE           UNION ALL
-SELECT 'CORE.T_F_COST_ALLOCATION',        COUNT(*) FROM CORE.T_F_COST_ALLOCATION;
--- Expected: PERIOD 192, ENTITY 2, FUND 3, DEPARTMENT 7, PAY_COMPONENT 20, STATUTORY_PARAMETER 11,
--- TAX_BRACKET 5, FX_RATE 4, APPROVAL_STEP 3, APP_USER 5, APP_USER_ROLE 5, SCENARIO 4, EMPLOYEE 5,
--- EMPLOYEE_CONTRACT 5, SCENARIO_EMPLOYEE 10, SCENARIO_PERIOD 29, PAYROLL_INPUT 10,
--- FUND_ALLOCATION 4, DEPARTMENT_ALLOCATION 4, PAYROLL_ADJUSTMENT 1, APPROVAL_REQUEST 3,
--- APPROVAL_STEP_STATE 9, APPROVAL_EMPLOYEE_CHECK 3, CHANGE_LOG 1, PAYROLL_LINE 23, COST_ALLOCATION 2
+SELECT 'APP.T_F_PAYROLL_LINE',           COUNT(*) FROM APP.T_F_PAYROLL_LINE;
+-- Expected: PERIOD 192, ENTITY 2, FUND 3, DEPARTMENT 7, PAY_COMPONENT 19, STATUTORY_PARAMETER 11,
+-- TAX_BRACKET 5, APPROVAL_STEP 3, APP_USER 6 (the 5 dummy users + treasurer2@example.org, created
+-- by V1.5.0 because it has a dummy signature), SCENARIO 4, EMPLOYEE 5, EMPLOYEE_CONTRACT 5,
+-- SCENARIO_EMPLOYEE 10, SCENARIO_PERIOD 29, PAYROLL_INPUT 10, FUND_ALLOCATION 4,
+-- DEPARTMENT_ALLOCATION 4, APPROVAL 9, CHANGE_LOG 1, PAYROLL_LINE 23
 
 -- C.4 Payroll summary for the dummy employee
 --     Expected Sep: gross 1000.00, net 944.95, employer cost 1045.88
 --     Expected Oct: gross  909.09, net 863.07, employer cost  954.96
 SELECT PERIOD_KEY, EMPLOYEE_ID, GROSS_PAY_USD, NSSF_EE_USD, SALARY_TAX_USD, NET_PAY_USD,
        NSSF_ER_USD, OTHER_EMPLOYER_COST_USD, EMPLOYER_COST_USD
-FROM CORE.V_F_PAYROLL_SUMMARY
+FROM RPT.V_F_PAYROLL_SUMMARY
 ORDER BY PERIOD_KEY;
 
--- C.5 Approval progress (Oct should show step 1 APPROVED, step 2 as the next step)
-SELECT REQUEST_ID, PERIOD_KEY, STEP_ORDER, STEP_TITLE, STEP_STATUS, ACTED_BY, IS_NEXT_STEP
+-- C.5 Approval progress. Expected: Sep and the Base budget (PERIOD_KEY 0) all APPROVED;
+--     Oct step 1 APPROVED and step 2 next (IS_NEXT_STEP), MANAGES_EMPLOYEE_CHECKS TRUE for
+--     step 2 of the payroll months only
+SELECT SCENARIO_ID, PERIOD_KEY, SCENARIO_TYPE, APPROVAL_STATUS, STEP_ORDER, STEP_TITLE, STEP_STATUS,
+       ACTED_BY, IS_NEXT_STEP, MANAGES_EMPLOYEE_CHECKS
 FROM RPT.V_F_APPROVAL_PROGRESS
-ORDER BY REQUEST_ID, STEP_ORDER;
+ORDER BY SCENARIO_ID, PERIOD_KEY, STEP_ORDER;
+
+-- C.6 Employee checks. Expected Oct: HR-KH-001 CHECKED, HR-FR-002 REJECTED, HR-KH-003 PENDING
+SELECT i.PERIOD_KEY, e.RESOURCE_CODE, i.CHECK_STATUS, i.CHECK_COMMENT, i.CHECKED_BY
+FROM APP.T_F_PAYROLL_INPUT i
+JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = i.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
+JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = i.EMPLOYEE_ID
+ORDER BY i.PERIOD_KEY, e.RESOURCE_CODE;
+
+-- C.7 Users and signatures. Expected: one role each; hr, director and treasurer2 have a signature
+SELECT USER_EMAIL, DISPLAY_NAME, ROLE_CODE, SIGNATURE_IMAGE IS NOT NULL AS HAS_SIGNATURE
+FROM APP.T_D_APP_USER ORDER BY USER_EMAIL;
 
 -- End of script

@@ -37,7 +37,7 @@ Rules:
 
 ## Deployment order
 
-1. `tables/V1.0.0__create_schemas.sql` – APP, CORE, RPT
+1. `tables/V1.0.0__create_schemas.sql` – APP, CORE, RPT (CORE is removed again by V1.5.0)
 2. `tables/V1.0.1__create_tables_core_dims_params.sql` – dimensions and parameters
 3. `tables/V1.0.2__create_tables_app.sql` – operational tables
 4. `tables/V1.0.3__create_tables_core_facts.sql` – fact tables
@@ -45,8 +45,9 @@ Rules:
 6. `tables/V1.2.0__approval_action_send_back.sql` – column comments for the step-back approval flow
 7. `tables/V1.3.0__create_signature_table.sql` – signature images for Power BI
 8. `tables/V1.4.0__approval_step_state.sql` – one state row per approval step (replaces the action log); one employee check per employee (step 2)
-9. `views/R__views_core.sql`, then `views/R__views_rpt.sql`, then `views/R__views_pbi.sql`
-10. `procedures/R__sp_*.sql` – any order (a procedure only checks the objects it uses when it runs)
+9. `tables/V1.5.0__two_schemas_fewer_tables.sql` – CORE merged into APP (views in RPT); FX rates on the period, role and signature on the user, checks on the monthly input, one approval table; adjustments and the stored cost allocation removed
+10. `views/R__views_core.sql` (base views, now in RPT), then `views/R__views_rpt.sql`, then `views/R__views_pbi.sql`
+11. `procedures/R__sp_*.sql` – any order (a procedure only checks the objects it uses when it runs)
 
 schemachange reads all subfolders of `migrations/`. It runs `V` files by version number,
 then `R` files by file name, so the folders can be reorganised freely.
@@ -62,7 +63,7 @@ app. For development, `dev_data/load_dummy_data.sql` loads dummy values.
 | Payroll cycle | `SP_CALCULATE_PAYROLL`, `SP_OPEN_PAYROLL_PERIOD`, `SP_SAVE_MONTHLY_INPUT`, `SP_FINALIZE_PAYROLL` |
 | Approvals | `SP_SET_EMPLOYEE_CHECK`, `SP_APPROVE_STEP`, `SP_REJECT_STEP`, `SP_UNDO_APPROVAL` |
 | Employees | `SP_SAVE_EMPLOYEE`, `SP_SAVE_EMPLOYEE_CONTRACT`, `SP_SET_EMPLOYEE_ACTIVE` |
-| Cost center and corrections | `SP_SAVE_FUND_ALLOCATION`, `SP_SAVE_DEPARTMENT_ALLOCATION`, `SP_SAVE_PAYROLL_ADJUSTMENT` |
+| Cost center | `SP_SAVE_FUND_ALLOCATION`, `SP_SAVE_DEPARTMENT_ALLOCATION` |
 | Settings | `SP_SAVE_EXCHANGE_RATE`, `SP_SAVE_WORKING_DAYS`, `SP_SAVE_APPROVAL_STEPS` |
 | Budgets and forecasts | `SP_CREATE_SCENARIO`, `SP_SAVE_SCENARIO_EMPLOYEE`, `SP_SAVE_PLANNED_HIRE`, `SP_DELETE_PLANNED_HIRE`, `SP_SUBMIT_SCENARIO`, `SP_DELETE_SCENARIO`, `SP_CREATE_FORECAST` |
 
