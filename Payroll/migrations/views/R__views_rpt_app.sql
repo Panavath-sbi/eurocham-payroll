@@ -13,6 +13,9 @@
    2026-10-05  V_F_DASHBOARD_MONTH added (everything the Dashboard shows, one row per month).
    2026-10-05  V_F_PAYROLL_MONTH added (one row per employee per month with the totals
                and the main components; replaces the app's Essbase transaction queries).
+   2026-10-06  V_D_SCENARIO_EMPLOYEE: adds START_PERIOD_KEY / END_PERIOD_KEY (first and last
+               month the employee is paid in the scenario) and BONUS_USD (the year's bonus
+               inputs) for the Budget Input grid and the planned-hire dialog.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    NOTES
@@ -142,7 +145,10 @@ CREATE OR REPLACE VIEW RPT.V_D_SCENARIO_EMPLOYEE (
     MONTHLY_SALARY_USD, RAISE_PCT, REVALUATION_PERIOD_KEY, FINAL_SALARY_USD,
     TAX_STATUS, DEPENDANT_CHILDREN, DEPENDANT_SPOUSE,
     INSURANCE_USD, VISA_USD, WORK_PERMIT_USD, FRINGE_BENEFIT_USD,
-    LAST_CONTRACT_CHANGE_PERIOD_KEY COMMENT 'First month of the employee''s latest actual contract version (shown as the latest raise date); NULL for planned hires'
+    LAST_CONTRACT_CHANGE_PERIOD_KEY COMMENT 'First month of the employee''s latest actual contract version (shown as the latest raise date); NULL for planned hires',
+    START_PERIOD_KEY COMMENT 'First month of the scenario in which the employee is paid (a month without an input row counts as paid)',
+    END_PERIOD_KEY COMMENT 'Last month of the scenario in which the employee is paid',
+    BONUS_USD COMMENT 'Sum of the bonus inputs of the employee over the scenario''s months (budget: entered in March)'
 )
 COMMENT = 'Employee terms per budget or forecast scenario, including planned hires.'
 AS
@@ -167,12 +173,25 @@ SELECT
     se.VISA_USD,
     se.WORK_PERMIT_USD,
     se.FRINGE_BENEFIT_USD,
-    lc.LAST_FROM
+    lc.LAST_FROM,
+    pm.START_PK,
+    pm.END_PK,
+    COALESCE(pm.BONUS, 0)
 FROM APP.T_D_SCENARIO_EMPLOYEE se
 JOIN APP.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = se.EMPLOYEE_ID
 LEFT JOIN (SELECT EMPLOYEE_ID, MAX(VALID_FROM_PERIOD_KEY) AS LAST_FROM
            FROM APP.T_D_EMPLOYEE_CONTRACT GROUP BY EMPLOYEE_ID) lc
-       ON lc.EMPLOYEE_ID = se.EMPLOYEE_ID;
+       ON lc.EMPLOYEE_ID = se.EMPLOYEE_ID
+LEFT JOIN (SELECT x.SCENARIO_ID, se2.EMPLOYEE_ID,
+                  MIN(IFF(COALESCE(i.INCLUDE_IN_PAYROLL, TRUE), x.PERIOD_KEY, NULL)) AS START_PK,
+                  MAX(IFF(COALESCE(i.INCLUDE_IN_PAYROLL, TRUE), x.PERIOD_KEY, NULL)) AS END_PK,
+                  SUM(COALESCE(i.BONUS_USD, 0))                                       AS BONUS
+           FROM APP.T_F_SCENARIO_PERIOD x
+           JOIN APP.T_D_SCENARIO_EMPLOYEE se2 ON se2.SCENARIO_ID = x.SCENARIO_ID
+           LEFT JOIN APP.T_F_PAYROLL_INPUT i
+                  ON i.SCENARIO_ID = x.SCENARIO_ID AND i.PERIOD_KEY = x.PERIOD_KEY AND i.EMPLOYEE_ID = se2.EMPLOYEE_ID
+           GROUP BY x.SCENARIO_ID, se2.EMPLOYEE_ID) pm
+       ON pm.SCENARIO_ID = se.SCENARIO_ID AND pm.EMPLOYEE_ID = se.EMPLOYEE_ID;
 
 /* -------------------------------------------------------------------------------------
    Pay lines by component: cards that need one component (bonus, seniority, ToS ...)
