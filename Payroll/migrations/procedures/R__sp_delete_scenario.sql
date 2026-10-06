@@ -9,6 +9,8 @@
    2026-10-02  Deletes the scenario's APP.T_F_APPROVAL_STEP_STATE rows (the action log was dropped).
    2026-10-02  V1.5.0: approval rows in APP.T_F_APPROVAL; no request, employee-check,
                cost-allocation or adjustment tables any more; CORE -> APP; one role per user.
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -26,7 +28,7 @@
 /* Refused for the ACTUAL scenario, a scenario IN_APPROVAL and the official budget.
    Deletes the scenario's pay lines, allocations, inputs, employee terms,
    planned hires, approval history and months, then the scenario itself.
-   Roles: PAYROLL_ADMIN or BUDGET_EDITOR. */
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_DELETE_SCENARIO(P_USER_EMAIL TEXT, P_SCENARIO_ID INT)
@@ -45,9 +47,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     SELECT MAX(SCENARIO_TYPE), MAX(SCENARIO_STATUS), MAX(IS_OFFICIAL), MAX(SCENARIO_NAME)

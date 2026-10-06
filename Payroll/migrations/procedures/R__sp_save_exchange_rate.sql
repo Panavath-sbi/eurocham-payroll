@@ -9,6 +9,8 @@
    2026-10-02  V1.5.0: rates stored on APP.T_D_PERIOD (FX_RATE_NBC, FX_RATE_NSSF) instead of
                T_P_FX_RATE; one role per user.
    2026-10-02  Fix: v_old_nssf was declared twice.
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -25,7 +27,7 @@
 
 /* Stores the published rates on the month in APP.T_D_PERIOD. If the month is the open payroll
    month, the applied rates change too: approvals reset and the month is recalculated.
-   A finalized month is refused. Role: PAYROLL_ADMIN. */
+   A finalized month is refused. Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_EXCHANGE_RATE(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_FX_RATE_NBC FLOAT, P_FX_RATE_NSSF FLOAT)
@@ -45,9 +47,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     IF (P_FX_RATE_NBC IS NULL OR P_FX_RATE_NSSF IS NULL OR P_FX_RATE_NBC <= 0 OR P_FX_RATE_NSSF <= 0) THEN

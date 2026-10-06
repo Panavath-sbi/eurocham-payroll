@@ -11,6 +11,10 @@
    2026-10-02  V1.5.0: FX rates read from T_D_PERIOD; approval step rows in APP.T_F_APPROVAL
                (no request); every employee's check starts PENDING on the input row;
                CORE -> APP; one role per user.
+   2026-10-05  Non-residents whose NON_RESIDENT_TO is before the new month become RESIDENT
+               from that month (new contract version, logged in T_F_CHANGE_LOG).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -29,7 +33,7 @@
 
 /* =====================================================================================
    SP_OPEN_PAYROLL_PERIOD (public) - "Create <Month>'s Payroll" on Monthly Inputs
-   Role: PAYROLL_ADMIN.
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    Checks: no other actual period open; the previous month is finalized (unless this is
    the very first period); working days and FX rates are available.
    Creates the scenario period, one input row per active employee with a valid contract,
@@ -60,12 +64,12 @@ DECLARE
     v_nssf        FLOAT;
     v_emp         INT DEFAULT 0;
 BEGIN
-    -- Role
+    -- Any active app user may do this (roles only limit approvals)
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = 'PAYROLL_ADMIN';
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can open a payroll period.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     -- Actual scenario
@@ -122,6 +126,49 @@ BEGIN
     END IF;
 
     BEGIN TRANSACTION;
+
+    -- Non-residency ended before this month: the employee is RESIDENT from this month.
+    -- Logged first (the rows still show NON_RESIDENT).
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    SELECT 'APP.T_D_EMPLOYEE_CONTRACT',
+           OBJECT_CONSTRUCT('EMPLOYEE_ID', c.EMPLOYEE_ID, 'EFFECTIVE_PERIOD_KEY', :P_PERIOD_KEY), 'UPDATE',
+           OBJECT_CONSTRUCT('TAX_STATUS', 'NON_RESIDENT', 'NON_RESIDENT_TO', c.NON_RESIDENT_TO),
+           OBJECT_CONSTRUCT('TAX_STATUS', 'RESIDENT', 'CHANGE_REASON', 'Non-residency ended (automatic)'),
+           :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
+    FROM APP.T_D_EMPLOYEE_CONTRACT c
+    WHERE :P_PERIOD_KEY BETWEEN c.VALID_FROM_PERIOD_KEY AND COALESCE(c.VALID_TO_PERIOD_KEY, 999912)
+      AND c.TAX_STATUS = 'NON_RESIDENT'
+      AND c.NON_RESIDENT_TO < DATE_FROM_PARTS(FLOOR(:P_PERIOD_KEY / 100), MOD(:P_PERIOD_KEY, 100), 1);
+
+    -- A version that starts this month is corrected in place
+    UPDATE APP.T_D_EMPLOYEE_CONTRACT
+    SET TAX_STATUS = 'RESIDENT', NON_RESIDENT_FROM = NULL, NON_RESIDENT_TO = NULL,
+        CHANGE_REASON = 'Non-residency ended (automatic)', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+    WHERE VALID_FROM_PERIOD_KEY = :P_PERIOD_KEY
+      AND TAX_STATUS = 'NON_RESIDENT'
+      AND NON_RESIDENT_TO < DATE_FROM_PARTS(FLOOR(:P_PERIOD_KEY / 100), MOD(:P_PERIOD_KEY, 100), 1);
+
+    -- Otherwise: a new RESIDENT version from this month ...
+    INSERT INTO APP.T_D_EMPLOYEE_CONTRACT
+        (EMPLOYEE_ID, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
+         MONTHLY_SALARY_USD, TAX_STATUS, DEPENDANT_CHILDREN, DEPENDANT_SPOUSE, INSURANCE_USD, VISA_USD,
+         WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, NON_RESIDENT_FROM, NON_RESIDENT_TO, INSERT_BY, UPDATE_BY)
+    SELECT EMPLOYEE_ID, :P_PERIOD_KEY, VALID_TO_PERIOD_KEY, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
+           MONTHLY_SALARY_USD, 'RESIDENT', DEPENDANT_CHILDREN, DEPENDANT_SPOUSE, INSURANCE_USD, VISA_USD,
+           WORK_PERMIT_USD, FRINGE_BENEFIT_USD, 'Non-residency ended (automatic)', NULL, NULL, :P_USER_EMAIL, :P_USER_EMAIL
+    FROM APP.T_D_EMPLOYEE_CONTRACT
+    WHERE VALID_FROM_PERIOD_KEY < :P_PERIOD_KEY
+      AND :P_PERIOD_KEY <= COALESCE(VALID_TO_PERIOD_KEY, 999912)
+      AND TAX_STATUS = 'NON_RESIDENT'
+      AND NON_RESIDENT_TO < DATE_FROM_PARTS(FLOOR(:P_PERIOD_KEY / 100), MOD(:P_PERIOD_KEY, 100), 1);
+
+    -- ... and the old version ends the month before
+    UPDATE APP.T_D_EMPLOYEE_CONTRACT
+    SET VALID_TO_PERIOD_KEY = :v_prev, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
+    WHERE VALID_FROM_PERIOD_KEY < :P_PERIOD_KEY
+      AND :P_PERIOD_KEY <= COALESCE(VALID_TO_PERIOD_KEY, 999912)
+      AND TAX_STATUS = 'NON_RESIDENT'
+      AND NON_RESIDENT_TO < DATE_FROM_PARTS(FLOOR(:P_PERIOD_KEY / 100), MOD(:P_PERIOD_KEY, 100), 1);
 
     INSERT INTO APP.T_F_SCENARIO_PERIOD
         (SCENARIO_ID, PERIOD_KEY, PERIOD_STATUS, WORKING_DAYS, FX_RATE_NBC, FX_RATE_NSSF, INSERT_BY, UPDATE_BY)

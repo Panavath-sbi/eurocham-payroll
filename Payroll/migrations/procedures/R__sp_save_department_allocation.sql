@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -25,7 +27,7 @@
    Shares must total 100% (0.01 tolerance). Rows with a 0 share are not stored.
    Editable: actual month OPEN / IN_APPROVAL (approvals reset for the employee),
    budget / forecast DRAFT. The period is recalculated.
-   Roles: ACTUAL -> PAYROLL_ADMIN; BUDGET / FORECAST -> PAYROLL_ADMIN or BUDGET_EDITOR. */
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_DEPARTMENT_ALLOCATION(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT, P_EMPLOYEE_ID INT, P_ALLOCATIONS TEXT)
@@ -70,10 +72,9 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to edit this scenario.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     SELECT COUNT(*) INTO :v_in_payroll

@@ -12,6 +12,7 @@
    2026-10-02  V1.5.0: identified by scenario + period instead of a request id (the request
                table is gone); state in APP.T_F_APPROVAL; checks read from
                T_F_PAYROLL_INPUT; one role per user (T_D_APP_USER.ROLE_CODE).
+   2026-10-06  V1.7.0 roles: the step's level (LEVEL_1 / LEVEL_2 / LEVEL_3) or ADMIN may act.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -84,9 +85,9 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = :v_role;
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND (u.ROLE_CODE = :v_role OR u.ROLE_CODE = 'ADMIN');
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a user with role ' || v_role || ' can act on step ' || P_STEP_ORDER || '.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a user with role ' || v_role || ' (or ADMIN) can act on step ' || P_STEP_ORDER || '.');
     END IF;
 
     IF (v_step_status = 'APPROVED') THEN

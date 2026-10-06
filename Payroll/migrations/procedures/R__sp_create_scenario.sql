@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -26,7 +28,7 @@
    month's rates, and every active employee's current contract terms.
    Copy (P_SOURCE_SCENARIO_ID given): same fiscal year as the source; its months, employee
    terms, monthly inputs, allocations and planned hires (as new planned employees) are copied.
-   The new scenario is DRAFT and fully calculated. Roles: PAYROLL_ADMIN or BUDGET_EDITOR. */
+   The new scenario is DRAFT and fully calculated. Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_CREATE_SCENARIO(P_USER_EMAIL TEXT, P_SCENARIO_NAME TEXT, P_FISCAL_YEAR INT,
@@ -53,9 +55,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN', 'BUDGET_EDITOR');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to manage budgets and forecasts.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     v_name := TRIM(P_SCENARIO_NAME);

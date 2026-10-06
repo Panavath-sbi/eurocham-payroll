@@ -14,6 +14,7 @@
    2026-10-02  V1.5.0: tables in APP, views in RPT; cost allocation read from the view
                RPT.V_F_COST_ALLOCATION (1c); checks read from T_F_PAYROLL_INPUT (4b);
                approvals in T_F_APPROVAL by scenario + period (4c, 10).
+   2026-10-06  V1.7.0 roles: TEST 3 checks an unknown user instead of a budget editor.
    ===================================================================================== */
 
 
@@ -82,10 +83,11 @@ ORDER BY e.RESOURCE_CODE, a.FUND_CODE, a.DEPARTMENT_CODE;
 CALL APP.SP_CALCULATE_PAYROLL('admin@example.org', $ACTUAL_ID, 202609);
 
 /* -------------------------------------------------------------------------------------
-   TEST 3 - Role check: a budget editor cannot calculate actual payroll
-   Expected: status ERROR, "You are not allowed to calculate this scenario."
+   TEST 3 - Access check: someone who is not an app user cannot calculate
+   (any active user can: roles only limit approvals)
+   Expected: status ERROR, "You are not an active app user. Ask a developer to add you in Snowflake."
    ------------------------------------------------------------------------------------- */
-CALL APP.SP_CALCULATE_PAYROLL('clerk@example.org', $ACTUAL_ID, 202610);
+CALL APP.SP_CALCULATE_PAYROLL('nobody@example.org', $ACTUAL_ID, 202610);
 
 /* -------------------------------------------------------------------------------------
    TEST 4 - Save a monthly input: Martin's overtime 1 -> 0

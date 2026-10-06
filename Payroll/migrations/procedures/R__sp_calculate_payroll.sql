@@ -8,6 +8,8 @@
    2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
    2026-10-02  V1.5.0: role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -29,7 +31,7 @@
    Recalculates one period (P_PERIOD_KEY) or every editable period of a scenario
    (P_PERIOD_KEY = NULL), oldest first so seniority sees the earlier months.
    Finalized and locked periods are skipped.
-   Roles: ACTUAL -> PAYROLL_ADMIN; BUDGET / FORECAST -> PAYROLL_ADMIN or BUDGET_EDITOR.
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
 USE DATABASE PAYROLL_DB;
    
@@ -53,10 +55,9 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to calculate this scenario.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     BEGIN TRANSACTION;

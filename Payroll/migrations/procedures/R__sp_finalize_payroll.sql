@@ -9,6 +9,8 @@
    2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
    2026-10-02  V1.5.0: approvals read by scenario + period (no request to close); CORE -> APP;
                one role per user.
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -27,7 +29,7 @@
 
 /* =====================================================================================
    SP_FINALIZE_PAYROLL (public) - "Process" on the Approval page
-   Role: PAYROLL_ADMIN.
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    Requires every approval step of the month to be APPROVED. Locks the month
    exactly as approved: no recalculation happens here, because any change after an
    approval already resets that approval.
@@ -51,9 +53,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = 'PAYROLL_ADMIN';
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can finalize payroll.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     SELECT MAX(SCENARIO_ID) INTO :v_scen FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL';

@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -26,7 +28,7 @@
    ACTUAL: finalized months are refused. The open month and draft forecast months take
    the new value (approvals reset, recalculated).
    BUDGET: draft budget scenarios take the new value and are recalculated.
-   Role: PAYROLL_ADMIN. */
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_WORKING_DAYS(P_USER_EMAIL TEXT, P_CALENDAR TEXT, P_DAYS TEXT)
@@ -49,9 +51,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     IF (P_CALENDAR IS NULL OR (P_CALENDAR <> 'ACTUAL' AND P_CALENDAR <> 'BUDGET')) THEN

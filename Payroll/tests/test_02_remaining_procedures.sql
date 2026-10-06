@@ -13,6 +13,9 @@
    2026-10-02  V1.5.0: approval procedures take scenario + month (no request id; 0 for a
                budget); checks read from T_F_PAYROLL_INPUT; one role per user (B5, B6);
                payroll adjustment test removed (old C9).
+   2026-10-06  V1.7.0 roles: A1b (retry is harmless), A1c (LEVEL_1 cannot approve step 2),
+               B5 / B5c (any user assigns approvers, also themselves), B6 (levels are
+               shared), D9 (ADMIN approves all three steps).
    ===================================================================================== */
 
 SET ACTUAL_ID = (SELECT SCENARIO_ID FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL');
@@ -29,10 +32,16 @@ SET DARA_ID   = (SELECT EMPLOYEE_ID FROM APP.T_D_EMPLOYEE WHERE RESOURCE_CODE = 
 -- A1. Step 1 needs no employee checks. Expected OK: "Step 1 approved."
 CALL APP.SP_APPROVE_STEP('hr@example.org', $ACTUAL_ID, 202611, 1, 'Inputs look right');
 
+-- A1b. The same call again (e.g. a network retry). Expected ERROR: "Step 1 is already approved."
+CALL APP.SP_APPROVE_STEP('hr@example.org', $ACTUAL_ID, 202611, 1, 'Inputs look right');
+
+-- A1c. LEVEL_1 cannot approve step 2. Expected ERROR: "Only a user with role LEVEL_2 (or ADMIN) can act on step 2."
+CALL APP.SP_APPROVE_STEP('hr@example.org', $ACTUAL_ID, 202611, 2, NULL);
+
 -- A2. Only step 2 checks employees. Expected ERROR: "Step 1 does not use per-employee checks."
 CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', 202611, 1, NULL, 'CHECKED', NULL);
 
--- A3. Expected ERROR: "Only a user with role TREASURER can act on step 2."
+-- A3. Expected ERROR: "Only a user with role LEVEL_2 (or ADMIN) can act on step 2."
 CALL APP.SP_SET_EMPLOYEE_CHECK('hr@example.org', 202611, 2, NULL, 'CHECKED', NULL);
 
 -- A4. Reject Martin without a comment. Expected ERROR: "A comment is required when rejecting an employee."
@@ -94,19 +103,22 @@ CALL APP.SP_SAVE_WORKING_DAYS('admin@example.org', 'ACTUAL', '[{"period_key": 20
 -- B4. Expected ERROR: "1 of the changed months are finalized and cannot change."
 CALL APP.SP_SAVE_WORKING_DAYS('admin@example.org', 'ACTUAL', '[{"period_key": 202610, "working_days": 20}]');
 
--- B5. Rename step 2 and give it a new approver. Expected OK: "1 approval step(s) saved."
-CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org',
+-- B5. Rename step 2 and add an approver to it (any active user may do this).
+--     Expected OK: "1 approval step(s) saved."
+CALL APP.SP_SAVE_APPROVAL_STEPS('hr@example.org',
     '[{"step_order": 2, "step_title": "Finance Treasurer", "approver_email": "treasurer2@example.org", "approver_name": "New Treasurer"}]');
 
--- B5b. One role per user. Expected ERROR: "The same person cannot be the approver of two steps (one role per user)."
+-- B5b. One role per user, so one person cannot be on two steps. Expected ERROR: "The same person cannot be the approver of two steps (one role per user)."
 CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org',
     '[{"step_order": 1, "approver_email": "hr@example.org"}, {"step_order": 3, "approver_email": "hr@example.org"}]');
 
--- B5c. Expected ERROR: "You cannot make yourself an approver: you would lose your payroll admin role (one role per user)."
-CALL APP.SP_SAVE_APPROVAL_STEPS('admin@example.org', '[{"step_order": 1, "approver_email": "admin@example.org"}]');
+-- B5c. Anyone may assign themselves: the clerk moves from LEVEL_1 to step 3.
+--     Expected OK: "1 approval step(s) saved."
+CALL APP.SP_SAVE_APPROVAL_STEPS('clerk@example.org', '[{"step_order": 3, "approver_email": "clerk@example.org"}]');
 
--- B6. Expected: treasurer2@example.org is TREASURER, treasurer@example.org is now VIEWER (one role
---     per user); step 2 has a new version titled "Finance Treasurer"
+-- B6. Expected roles: admin ADMIN; hr LEVEL_1; treasurer and treasurer2 both LEVEL_2 (the
+--     previous holder keeps the level); clerk and director both LEVEL_3.
+--     Step 2 has a new version titled "Finance Treasurer"
 SELECT USER_EMAIL, DISPLAY_NAME, ROLE_CODE FROM APP.T_D_APP_USER ORDER BY ROLE_CODE, USER_EMAIL;
 SELECT STEP_ORDER, STEP_TITLE, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY FROM APP.T_P_APPROVAL_STEP ORDER BY STEP_ORDER, VALID_FROM_PERIOD_KEY;
 
@@ -192,12 +204,12 @@ CALL APP.SP_SUBMIT_SCENARIO('clerk@example.org', $COPY_ID);
 -- D8. Expected ERROR: "This scenario is IN_APPROVAL and cannot be edited."
 CALL APP.SP_SAVE_SCENARIO_EMPLOYEE('clerk@example.org', $COPY_ID, $SOKHA_RAISE);
 
--- D9. Three approvals (step 2 now belongs to treasurer2, see B5).
+-- D9. ADMIN approves all three steps alone (developers / testing).
 --     Expected OK x3; the last: "Budget approved. It is now the official budget for 2027."
 --     A budget is approved as a whole: the month is 0 (NULL also works).
-CALL APP.SP_APPROVE_STEP('hr@example.org',         $COPY_ID, 0, 1, NULL);
-CALL APP.SP_APPROVE_STEP('treasurer2@example.org', $COPY_ID, 0, 2, NULL);
-CALL APP.SP_APPROVE_STEP('director@example.org',   $COPY_ID, 0, 3, 'Approved');
+CALL APP.SP_APPROVE_STEP('admin@example.org', $COPY_ID, 0, 1, NULL);
+CALL APP.SP_APPROVE_STEP('admin@example.org', $COPY_ID, 0, 2, NULL);
+CALL APP.SP_APPROVE_STEP('admin@example.org', $COPY_ID, 0, 3, 'Approved');
 
 -- D10. Expected: Copy APPROVED and official; Base no longer official
 SELECT SCENARIO_NAME, SCENARIO_STATUS, IS_OFFICIAL FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'BUDGET' ORDER BY SCENARIO_ID;

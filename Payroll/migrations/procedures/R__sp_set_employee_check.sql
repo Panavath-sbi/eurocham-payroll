@@ -11,6 +11,7 @@
    2026-10-02  V1.5.0: the check is stored on the employee's T_F_PAYROLL_INPUT row
                (CHECK_STATUS, CHECK_COMMENT, CHECKED_BY); takes the payroll month instead
                of a request id; one role per user (T_D_APP_USER.ROLE_CODE).
+   2026-10-06  V1.7.0 roles: the step's level (LEVEL_1 / LEVEL_2 / LEVEL_3) or ADMIN may act.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -32,8 +33,8 @@
                    NULL = "Approve All": every employee still PENDING becomes CHECKED
                    (rejected employees are left as they are).
    P_CHECK_STATUS: CHECKED, REJECTED (comment required) or PENDING.
-   The month must be OPEN or IN_APPROVAL. Role: the step's APPROVER_ROLE. The step must not
-   be approved yet. There is one check per employee for the month. */
+   The month must be OPEN or IN_APPROVAL. Role: the step's APPROVER_ROLE (LEVEL_1 /
+   LEVEL_2 / LEVEL_3) or ADMIN. The step must not be approved yet. There is one check per employee for the month. */
 USE DATABASE PAYROLL_DB;
 
 CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_CHECK(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_STEP_ORDER INT,
@@ -84,9 +85,9 @@ BEGIN
 
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE = :v_role;
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND (u.ROLE_CODE = :v_role OR u.ROLE_CODE = 'ADMIN');
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a user with role ' || v_role || ' can act on step ' || P_STEP_ORDER || '.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a user with role ' || v_role || ' (or ADMIN) can act on step ' || P_STEP_ORDER || '.');
     END IF;
 
     IF (v_step_status = 'APPROVED') THEN

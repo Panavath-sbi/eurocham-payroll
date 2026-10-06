@@ -13,6 +13,8 @@
                the users that had a signature); approvals in T_F_APPROVAL by scenario +
                period; employee checks on T_F_PAYROLL_INPUT; no adjustment and no stored
                cost allocation (it is the view RPT.V_F_COST_ALLOCATION).
+   2026-10-06  V1.7.0 roles: admin = ADMIN; hr and clerk share LEVEL_1 (several people
+               per level); treasurer LEVEL_2; director LEVEL_3.
    Part D: dummy working days and FX rates. Part B: employees, scenarios, inputs,
    approvals and fact rows. Part C: check queries with expected results.
    ===================================================================================== */
@@ -51,15 +53,16 @@ WHERE p.PERIOD_KEY = v.PK;
    PART B - DUMMY DATA
    ===================================================================================== */
 
--- B.1 App users, one role each. MERGE because V1.5.0 already created the users that had
---     a dummy signature (hr, director, treasurer2); their signature is kept.
+-- B.1 App users, one role each (ADMIN or LEVEL_1-3; a level can be shared). MERGE because
+--     V1.5.0 already created the users that had a dummy signature (hr, director,
+--     treasurer2); their signature is kept.
 MERGE INTO APP.T_D_APP_USER t
 USING (SELECT * FROM VALUES
-    ('admin@example.org',     'Payroll Admin', 'PAYROLL_ADMIN'),
-    ('clerk@example.org',     'Payroll Clerk', 'BUDGET_EDITOR'),
-    ('hr@example.org',        'HR Manager',    'HR_MANAGER'),
-    ('treasurer@example.org', 'Treasurer',     'TREASURER'),
-    ('director@example.org',  'Director',      'DIRECTOR')
+    ('admin@example.org',     'Developer',     'ADMIN'),
+    ('clerk@example.org',     'Payroll Clerk', 'LEVEL_1'),
+    ('hr@example.org',        'HR Manager',    'LEVEL_1'),
+    ('treasurer@example.org', 'Treasurer',     'LEVEL_2'),
+    ('director@example.org',  'Director',      'LEVEL_3')
     AS v (USER_EMAIL, DISPLAY_NAME, ROLE_CODE)) s
    ON t.USER_EMAIL = s.USER_EMAIL
 WHEN MATCHED THEN UPDATE SET DISPLAY_NAME = s.DISPLAY_NAME, ROLE_CODE = s.ROLE_CODE, IS_ACTIVE = TRUE

@@ -14,6 +14,10 @@
                V_F_APPROVAL_EVENT reads the change-log rows of APP.T_F_APPROVAL (by
                scenario + period; actions logged before V1.5.0 used a request id and are
                no longer listed).
+   2026-10-05  V_D_EMPLOYEE: NON_RESIDENT_FROM and NON_RESIDENT_TO added.
+   2026-10-05  V_D_EMPLOYEE: PHONE added (shown and edited on the Employee Register).
+   2026-10-06  V_D_EMPLOYEE: BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NUMBER added; every app
+               user may see them, so the Employee Register reads them with the employee list.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
    ===================================================================================== */
 
@@ -22,7 +26,7 @@
    ===================================================================================== */
 
 CREATE OR REPLACE VIEW RPT.V_D_EMPLOYEE
-COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. Bank details are deliberately excluded.'
+COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. Includes the employee''s bank details.'
 AS
 SELECT
     c.CONTRACT_ID                                           AS EMPLOYEE_VERSION_KEY,
@@ -32,6 +36,10 @@ SELECT
     e.LAST_NAME,
     TRIM(COALESCE(e.FIRST_NAME, '') || ' ' || COALESCE(e.LAST_NAME, '')) AS FULL_NAME,
     e.EMAIL,
+    e.PHONE,
+    e.BANK_NAME,
+    e.BANK_ACCOUNT_NAME,
+    e.BANK_ACCOUNT_NUMBER,
     e.NATIONALITY,
     e.EMPLOYMENT_START_DATE,
     e.EMPLOYMENT_END_DATE,
@@ -47,6 +55,8 @@ SELECT
     c.ENTITY_CODE,
     c.MONTHLY_SALARY_USD,
     c.TAX_STATUS,
+    c.NON_RESIDENT_FROM,
+    c.NON_RESIDENT_TO,
     c.DEPENDANT_CHILDREN,
     c.DEPENDANT_SPOUSE,
     c.DEPENDANT_CHILDREN + c.DEPENDANT_SPOUSE               AS TOTAL_DEPENDANTS,

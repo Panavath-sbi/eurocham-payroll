@@ -7,6 +7,10 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  V1.5.0: CORE tables moved to APP; role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-05  Accepts non_resident_from / non_resident_to (null clears; both are cleared
+               when the tax status is RESIDENT).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -25,12 +29,13 @@
    month). Must be after the last finalized month.
    P_CONTRACT: JSON with any of position, employment_type, contract_type, entity_code,
    monthly_salary_usd, tax_status, dependant_children, dependant_spouse, insurance_usd,
-   visa_usd, work_permit_usd, fringe_benefit_usd, change_reason. Keys left out keep the
-   value of the version in force that month.
+   visa_usd, work_permit_usd, fringe_benefit_usd, change_reason, non_resident_from,
+   non_resident_to (dates YYYY-MM-DD). Keys left out keep the value of the version in
+   force that month; a date key set to null clears it. RESIDENT clears both dates.
    If the version in force already starts that month, it is corrected in place; otherwise
    it is closed the month before and a new version is added.
    If the change reaches the open month, its approvals reset and it is recalculated.
-   Role: PAYROLL_ADMIN. */
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_EMPLOYEE_CONTRACT(P_USER_EMAIL TEXT, P_EMPLOYEE_ID INT, P_EFFECTIVE_PERIOD_KEY INT, P_CONTRACT TEXT)
@@ -59,9 +64,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     SELECT COUNT(*), MAX(IS_PLANNED) INTO :v_exists, :v_planned FROM APP.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :P_EMPLOYEE_ID;
@@ -116,7 +121,13 @@ BEGIN
         COALESCE(x.D:visa_usd::FLOAT,          c.VISA_USD)           AS VISA_USD,
         COALESCE(x.D:work_permit_usd::FLOAT,   c.WORK_PERMIT_USD)    AS WORK_PERMIT_USD,
         COALESCE(x.D:fringe_benefit_usd::FLOAT, c.FRINGE_BENEFIT_USD) AS FRINGE_BENEFIT_USD,
-        COALESCE(x.D:change_reason::TEXT, 'Contract change')         AS CHANGE_REASON
+        COALESCE(x.D:change_reason::TEXT, 'Contract change')         AS CHANGE_REASON,
+        IFF(COALESCE(x.D:tax_status::TEXT, c.TAX_STATUS) = 'RESIDENT', NULL,
+            IFF(IS_NULL_VALUE(x.D:non_resident_from), NULL,
+                COALESCE(x.D:non_resident_from::DATE, c.NON_RESIDENT_FROM)))  AS NON_RESIDENT_FROM,
+        IFF(COALESCE(x.D:tax_status::TEXT, c.TAX_STATUS) = 'RESIDENT', NULL,
+            IFF(IS_NULL_VALUE(x.D:non_resident_to), NULL,
+                COALESCE(x.D:non_resident_to::DATE, c.NON_RESIDENT_TO)))      AS NON_RESIDENT_TO
     FROM APP.T_D_EMPLOYEE_CONTRACT c, (SELECT PARSE_JSON(:P_CONTRACT) AS D) x
     WHERE c.CONTRACT_ID = :v_cur_id;
 
@@ -143,6 +154,7 @@ BEGIN
             DEPENDANT_CHILDREN = t.DEPENDANT_CHILDREN, DEPENDANT_SPOUSE = t.DEPENDANT_SPOUSE,
             INSURANCE_USD = t.INSURANCE_USD, VISA_USD = t.VISA_USD, WORK_PERMIT_USD = t.WORK_PERMIT_USD,
             FRINGE_BENEFIT_USD = t.FRINGE_BENEFIT_USD, CHANGE_REASON = t.CHANGE_REASON,
+            NON_RESIDENT_FROM = t.NON_RESIDENT_FROM, NON_RESIDENT_TO = t.NON_RESIDENT_TO,
             UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
         FROM APP.TMP_CONTRACT t
         WHERE c.CONTRACT_ID = :v_cur_id;
@@ -155,10 +167,10 @@ BEGIN
         INSERT INTO APP.T_D_EMPLOYEE_CONTRACT
             (EMPLOYEE_ID, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
              MONTHLY_SALARY_USD, TAX_STATUS, DEPENDANT_CHILDREN, DEPENDANT_SPOUSE, INSURANCE_USD, VISA_USD,
-             WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, INSERT_BY, UPDATE_BY)
+             WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, NON_RESIDENT_FROM, NON_RESIDENT_TO, INSERT_BY, UPDATE_BY)
         SELECT :P_EMPLOYEE_ID, :v_eff, :v_cur_to, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
                MONTHLY_SALARY_USD, TAX_STATUS, DEPENDANT_CHILDREN, DEPENDANT_SPOUSE, INSURANCE_USD, VISA_USD,
-               WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, :P_USER_EMAIL, :P_USER_EMAIL
+               WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, NON_RESIDENT_FROM, NON_RESIDENT_TO, :P_USER_EMAIL, :P_USER_EMAIL
         FROM APP.TMP_CONTRACT;
     END IF;
 

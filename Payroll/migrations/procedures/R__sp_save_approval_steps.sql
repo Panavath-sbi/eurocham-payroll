@@ -11,6 +11,9 @@
                step's role, and whoever held it before becomes VIEWER. Two steps cannot
                share one approver, and the admin cannot make themselves an approver.
                CORE tables moved to APP.
+   2026-10-06  V1.7.0 roles: any active app user may call this. Several people can hold the
+               same level, so the previous holders keep their level (no more VIEWER);
+               users may assign themselves. Still: one person cannot be put on two steps.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -30,9 +33,11 @@
    step_order must be a step of the current chain (steps are not added or removed here).
    A new title applies from the current calendar month: the step version in force is
    closed the month before and a new version is added (or corrected if it started this month).
-   approver_email: the user is created if new and gets the step's APPROVER_ROLE as their
-   one role (replacing any role they had); every other user who held that role becomes
-   VIEWER. The same person cannot approve two steps. Role: PAYROLL_ADMIN. */
+   approver_email: the user is created if new and gets the step's APPROVER_ROLE
+   (LEVEL_1 / LEVEL_2 / LEVEL_3) as their one role, replacing the role they had. Other
+   holders of that level keep it (several people can share a level). The same person
+   cannot be put on two steps. Anyone may assign themselves. ADMIN is set in Snowflake
+   only, never here. Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_APPROVAL_STEPS(P_USER_EMAIL TEXT, P_STEPS TEXT)
@@ -51,9 +56,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     v_now := TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM'));
@@ -77,13 +82,6 @@ BEGIN
     IF (v_rows = 0 OR v_bad > 0) THEN
         DROP TABLE IF EXISTS APP.TMP_STEPS;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Each row needs an existing step_order and a step_title or approver_email.');
-    END IF;
-
-    -- One role per user: the admin doing this would lose their admin role
-    SELECT COUNT(*) INTO :v_bad FROM APP.TMP_STEPS WHERE APPROVER_EMAIL = LOWER(:P_USER_EMAIL);
-    IF (v_bad > 0) THEN
-        DROP TABLE IF EXISTS APP.TMP_STEPS;
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You cannot make yourself an approver: you would lose your payroll admin role (one role per user).');
     END IF;
 
     -- One role per user: one person cannot be the approver of two steps
@@ -115,13 +113,7 @@ BEGIN
     WHERE s.APPROVAL_STEP_ID = t.APPROVAL_STEP_ID AND t.STEP_TITLE IS NOT NULL
       AND t.STEP_TITLE <> t.OLD_TITLE AND t.VALID_FROM_PERIOD_KEY < :v_now;
 
-    -- Approvers: the previous holders of each assigned role become VIEWER ...
-    UPDATE APP.T_D_APP_USER u
-    SET ROLE_CODE = 'VIEWER', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-    FROM APP.TMP_STEPS t
-    WHERE t.APPROVER_EMAIL IS NOT NULL AND u.ROLE_CODE = t.APPROVER_ROLE AND u.USER_EMAIL <> t.APPROVER_EMAIL;
-
-    -- ... the new approver gets the role (created if new)
+    -- Approvers: the new approver gets the step's level (created if new); other holders keep theirs
     MERGE INTO APP.T_D_APP_USER u
     USING (SELECT APPROVER_EMAIL, MAX(APPROVER_NAME) AS APPROVER_NAME, MAX(APPROVER_ROLE) AS APPROVER_ROLE
            FROM APP.TMP_STEPS WHERE APPROVER_EMAIL IS NOT NULL GROUP BY APPROVER_EMAIL) t

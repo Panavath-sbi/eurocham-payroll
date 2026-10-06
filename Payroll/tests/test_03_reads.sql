@@ -1,13 +1,13 @@
 /* =====================================================================================
    TESTS 03 - READS OF THE "PAYROLL - READ" FLOW
-   Runs every read of flows/read_catalog.json with dummy values, so each one can be
-   checked in Snowsight before the flow exists. Run after the rebuild (tests 01 and 02
+   Runs the main reads the app makes through the flow, with dummy values, so each
+   one can be checked in Snowsight. Run after the rebuild (tests 01 and 02
    are not needed). Each query should return rows without an error.
    =====================================================================================
 
    HISTORY
    -------
-   2026-10-05  Initial version (generated from the same list as flows/read_catalog.json).
+   2026-10-05  Initial version.
    ===================================================================================== */
 
 -- {S} = scenario id, {P} = month YYYYMM (or a year where noted), {E} = employee id

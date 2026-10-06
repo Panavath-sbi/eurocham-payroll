@@ -13,7 +13,7 @@ stored procedures, deployed with [schemachange](https://github.com/Snowflake-Lab
 | `migrations/procedures/` | Stored procedures, one per file (`R` files) | Every environment |
 | `dev_data/` | Dummy employees, scenarios, payroll rows and check queries | Dev / test only, run by hand |
 | `tests/` | Test calls for the procedures, each with its expected result | Dev / test only, run by hand |
-| `flows/` | The Power Automate flows: how to build them and the list of reads (`read_catalog.json`) | Built by hand in Power Automate |
+| `flows/` | The Power Automate flow (EuroCham-Snowflake): how it is built and how the app calls it | Built by hand in Power Automate |
 | `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) | Run by hand when agreed |
 
 ## File naming
@@ -47,8 +47,10 @@ Rules:
 7. `tables/V1.3.0__create_signature_table.sql` – signature images for Power BI
 8. `tables/V1.4.0__approval_step_state.sql` – one state row per approval step (replaces the action log); one employee check per employee (step 2)
 9. `tables/V1.5.0__two_schemas_fewer_tables.sql` – CORE merged into APP (views in RPT); FX rates on the period, role and signature on the user, checks on the monthly input, one approval table; adjustments and the stored cost allocation removed
-10. `views/R__views_core.sql` (base views, now in RPT), then `views/R__views_rpt.sql`, `views/R__views_pbi.sql` and `views/R__views_rpt_app.sql` (views read by the Power Apps flows)
-11. `procedures/R__sp_*.sql` – any order (a procedure only checks the objects it uses when it runs)
+10. `tables/V1.6.0__non_residency_dates.sql` – non-residency start / end dates on the contract (automatic switch to resident when a month opens)
+11. `views/R__views_core.sql` (base views, in RPT), then `views/R__views_rpt.sql`, `views/R__views_pbi.sql` and `views/R__views_rpt_app.sql` (views read by the Power Apps flow)
+12. `procedures/R__sp_*.sql`
+13. `grants/A__grants.sql` – always last (re-created views and procedures lose their grants) – any order (a procedure only checks the objects it uses when it runs)
 
 schemachange reads all subfolders of `migrations/`. It runs `V` files by version number,
 then `R` files by file name, so the folders can be reorganised freely.
@@ -63,7 +65,7 @@ app. For development, `dev_data/load_dummy_data.sql` loads dummy values.
 | Calculation (internal) | `SP_CALC_PERIOD`, `SP_RESET_APPROVALS` |
 | Payroll cycle | `SP_CALCULATE_PAYROLL`, `SP_OPEN_PAYROLL_PERIOD`, `SP_SAVE_MONTHLY_INPUT`, `SP_FINALIZE_PAYROLL` |
 | Approvals | `SP_SET_EMPLOYEE_CHECK`, `SP_APPROVE_STEP`, `SP_REJECT_STEP`, `SP_UNDO_APPROVAL` |
-| Employees | `SP_SAVE_EMPLOYEE`, `SP_SAVE_EMPLOYEE_CONTRACT`, `SP_SET_EMPLOYEE_ACTIVE` |
+| Employees | `SP_SAVE_EMPLOYEE`, `SP_SAVE_EMPLOYEE_CONTRACT`, `SP_SET_EMPLOYEE_ACTIVE`, `SP_GET_EMPLOYEE_BANK` (bank details, payroll admins only) |
 | Cost center | `SP_SAVE_FUND_ALLOCATION`, `SP_SAVE_DEPARTMENT_ALLOCATION` |
 | Settings | `SP_SAVE_EXCHANGE_RATE`, `SP_SAVE_WORKING_DAYS`, `SP_SAVE_APPROVAL_STEPS` |
 | Budgets and forecasts | `SP_CREATE_SCENARIO`, `SP_SAVE_SCENARIO_EMPLOYEE`, `SP_SAVE_PLANNED_HIRE`, `SP_DELETE_PLANNED_HIRE`, `SP_SUBMIT_SCENARIO`, `SP_DELETE_SCENARIO`, `SP_CREATE_FORECAST` |

@@ -1,139 +1,71 @@
-# Power Automate flows
+# Power Automate flow: EuroCham-Snowflake
 
-How Power Apps talks to Snowflake. Two shared flows: **Payroll – Read** (this file) and
-**Payroll – Action** (calls the `APP.SP_` procedures; to be designed).
+How Power Apps talks to Snowflake. One flow for everything: reads and procedure calls.
 
 ## History
 
-- 2026-10-05 Initial version: Payroll – Read, with `read_catalog.json`.
+- 2026-10-05 Initial version (two flows planned).
+- 2026-10-05 Replaced by one generic flow with a single `Sql` input.
 
-## Payroll – Read
+## What it does
 
-The app asks for a read by name (for example `MonthlyInputs`) and passes up to three
-numbers. The flow looks the name up in a fixed list of SQL statements
-(`read_catalog.json`), puts the numbers in, runs the statement and returns the rows as
-JSON. The app can only choose a read from the list; it never sends SQL.
+The app sends one SQL statement as text. The flow runs it only if it is:
 
-| Placeholder | Meaning |
-| --- | --- |
-| `{S}` | Scenario id (the actual payroll scenario, a budget or a forecast) |
-| `{P}` | Month as YYYYMM (`202610`); for `Calendar` and `BudgetVsActual` the year (`2026`); `0` for a budget's approval |
-| `{E}` | Employee id |
+- a `SELECT` (reads; the role can only see the RPT views granted in `A__grants.sql`), or
+- a `CALL APP.SP_<name>(...)` of a procedure on the allow-list (the 24 public procedures).
 
-Unused numbers can be left at 0. `tests/test_03_reads.sql` runs every read with dummy
-values; run it in Snowsight to check the SQL before building the flow.
+Anything else is refused with `status = ERROR`, `message = Not allowed`. Snowflake also refuses
+several statements in one call (multi statement count not set).
 
-### Building the flow
+The flow returns three text outputs: `status` (OK / ERROR), `message`, `rows` (the result rows
+as JSON text). For a `CALL`, `rows` holds one row with one column named after the procedure,
+containing the procedure's own `{"status": ..., "message": ...}`.
 
-1. **Trigger: "When Power Apps calls a flow (V2)"** with four inputs:
-   `ReadName` (Text), `ScenarioId` (Number), `PeriodKey` (Number), `EmployeeId` (Number).
-   Mark the three numbers as optional.
-   In expressions, the trigger names its inputs by type, not by label: normally `text`,
-   `number`, `number_1`, `number_2`, in the order they were added. Check with
-   "Peek code" on the trigger and adjust the expressions below if they differ.
+## Steps in the flow
 
-2. **Compose, renamed `Catalog`.** Paste the whole content of `read_catalog.json` as the
-   input. Adding a read later = adding one line here (and the same line to the JSON file).
-
-3. **Compose, renamed `SqlTemplate`.** Expression:
+1. Trigger: **When Power Apps calls a flow (V2)**, one Text input `Sql`.
+2. Compose `Text`: `trim(triggerBody()?['text'])`
+3. Compose `Allowed`: JSON list of the 24 public procedure names (not SP_CALC_PERIOD,
+   SP_RESET_APPROVALS).
+4. Compose `Statement`:
    ```
-   outputs('Catalog')?[triggerBody()?['text']]
+   if(or(startsWith(toUpper(outputs('Text')), 'SELECT '), and(startsWith(toUpper(outputs('Text')), 'CALL APP.SP_'), contains(outputs('Allowed'), toUpper(substring(outputs('Text'), 9, sub(indexOf(outputs('Text'), '('), 9)))))), outputs('Text'), '')
    ```
+5. Condition `empty(outputs('Statement'))`: if true, respond ERROR / Not allowed and Terminate.
+6. **Submit SQL Statement for Execution** (Snowflake connector): statement = `Statement`,
+   database `PAYROLL_DB`, role `SF_APA_PAYROLL-ETL`, the warehouse; schema empty.
+7. Respond: `status` OK, `rows` = `string(body('Submit_SQL_Statement_for_Execution')?['Data'])`.
+8. Parallel respond (run after: failed / timed out): `status` ERROR, `rows` = `[]`.
 
-4. **Condition:** `empty(outputs('SqlTemplate'))` is equal to `true`.
-   - *Yes:* **Respond to a PowerApp or flow** with `status` = `ERROR`,
-     `message` = `Unknown read`, `rows` = `[]`. Then **Terminate** (Succeeded).
-   - *No:* nothing (continue below the condition).
+When a procedure is added for the app, add its name to `Allowed` and to `A__grants.sql`.
 
-5. **Compose, renamed `Sql`.** Expression (one line), which turns each number into a whole
-   number first, so anything that is not a number makes the flow fail instead of reaching
-   Snowflake:
-   ```
-   replace(replace(replace(outputs('SqlTemplate'),
-     '{S}', string(int(string(coalesce(triggerBody()?['number'], 0))))),
-     '{P}', string(int(string(coalesce(triggerBody()?['number_1'], 0))))),
-     '{E}', string(int(string(coalesce(triggerBody()?['number_2'], 0)))))
-   ```
+## Calling it from Power Apps
 
-6. **Snowflake: Submit SQL Statement for Execution.** Statement = output of `Sql`;
-   database `PAYROLL_DB`; schema `RPT`; your warehouse; the read role (see below);
-   Asynchronous = No; timeout 60.
+The flow is added to the app as `'EuroCham-Snowflake'`.
 
-7. **Snowflake: Check the Status and Get Results**, with the statement handle from step 6.
-
-8. **Respond to a PowerApp or flow** with three text outputs:
-   - `status` = `OK`
-   - `message` = (empty)
-   - `rows` = `string(body('Check_the_Status_and_Get_Results')?['Data'])`
-
-   On the first test, open the run history and look at the output of step 7: `rows`
-   must be a list of objects such as `[{"PERIOD_KEY": 202610, ...}]`. If it is a list of
-   lists instead, tell Claude the exact shape and the expression will be adjusted.
-
-9. **Errors.** Add a second **Respond to a PowerApp or flow** next to step 8, with
-   "Configure run after" set to *has failed* / *has timed out* on step 7, returning
-   `status` = `ERROR`, `message` = `The read failed`, `rows` = `[]`. The app then always
-   gets an answer instead of a flow error.
-
-### Snowflake role for this flow
-
-Reads only need `SELECT` on the RPT views the catalog uses (views run with their
-owner's rights, so no access to the APP tables is needed). Give this flow's connection a
-role with only that, for example:
-
-```sql
-GRANT USAGE ON DATABASE PAYROLL_DB TO ROLE <READ_ROLE>;
-GRANT USAGE ON SCHEMA PAYROLL_DB.RPT TO ROLE <READ_ROLE>;
-GRANT SELECT ON VIEW PAYROLL_DB.RPT.V_D_LOOKUP TO ROLE <READ_ROLE>;
--- ... one line per view used in read_catalog.json
+Read:
+```
+Set(varAns, 'EuroCham-Snowflake'.Run("SELECT * FROM RPT.V_D_LOOKUP WHERE IS_ACTIVE"));
+ClearCollect(colX, ForAll(Table(ParseJSON(varAns.rows)) As r, { Code: Text(r.Value.CODE) }));
 ```
 
-Even if something went wrong in the flow, that role cannot change data or read the
-Power BI views.
-
-### Calling it from Power Apps (example)
-
+Procedure:
 ```
-Set(varAnswer, 'Payroll-Read'.Run("MonthlyInputs", varActualScenarioId, 202610, 0));
-If(varAnswer.status = "OK",
-    ClearCollect(colInputs,
-        ForAll(Table(ParseJSON(varAnswer.rows)),
-            { EmployeeId: Value(ThisRecord.Value.EMPLOYEE_ID),
-              Name:       Text(ThisRecord.Value.FULL_NAME),
-              Overtime:   Value(ThisRecord.Value.OVERTIME_DAYS),
-              Check:      Text(ThisRecord.Value.CHECK_STATUS) })),
-    Notify(varAnswer.message, NotificationType.Error)
-)
+Set(varAns, 'EuroCham-Snowflake'.Run("CALL APP.SP_APPROVE_STEP('" & User().Email & "', " & varActualScenarioId & ", " & varOpenPeriod & ", 1, '" & Substitute(txtComment.Text, "'", "''") & "')"));
+Set(varRes, Index(Table(ParseJSON(varAns.rows)), 1).Value.SP_APPROVE_STEP);   // varRes.status, varRes.message
 ```
 
-Column names come back in capitals, exactly as in the views.
+JSON payloads (P_EMPLOYEE, P_INPUTS ...) are built with `JSON({...})` and wrapped in
+`Substitute(..., "'", "''")`.
 
-### The reads
+## Things to know
 
-| Read | Filters | Used on |
-| --- | --- | --- |
-| Lookups | – | Dropdowns (chambers, funds, departments) |
-| Scenarios | – | Scenario / quarter dropdowns; the actual scenario id |
-| ScenarioPeriods | S | Period dropdown, FX card, which month is open |
-| Calendar | P = year | Settings: working days; next month's rates |
-| Employees | – | Employee Register, Cost Center list |
-| EmployeeHistory | E | Edit Employee: contract versions |
-| MonthlyInputs | S, P | Monthly Inputs grid; Approval validation buttons |
-| ScenarioInputs | S | Budget / Forecast Show Details |
-| Allocations | S, P | Cost Center: fund and department panels |
-| PayrollSummary | S, P | Approval grid, Cost Center summary |
-| ScenarioPayroll | S | Previous month / 6-month average; Budget Approval and Forecast grids |
-| PayrollLines | S, P | Cards by component (bonus, seniority, ToS) |
-| ScenarioPayrollLines | S | Budget Approval / Forecast cards by component |
-| CostCenterSummary | S, P | Cost Center: department bars |
-| ScenarioSummary | S | Dashboard trend; Budget and Forecast KPI cards |
-| DashboardKpi | – | Dashboard cards |
-| BudgetVsActual | P = year | Dashboard budget vs forecast; Approval budget / forecast |
-| ApprovalProgress | S, P (0 for a budget) | Approval chain on every approval page |
-| ScenarioEmployees | S | Budget Input grid, Forecast |
-| ApprovalSteps | – | Settings: approval steps and approvers |
-| Users | – | Settings; showing names |
-
-Bank details are not in any read: every app user shares the flow's connection, so
-anything readable here is readable by all of them. They will come from a procedure
-that checks the caller is a payroll admin, through Payroll – Action.
+- Column names come back in capitals, as in the views. Empty values are left out of the row.
+- Dates come back as days since 1970-01-01, timestamps as seconds since 1970-01-01:
+  `DateAdd(Date(1970,1,1), Value(Text(x)), TimeUnit.Days)` and
+  `DateAdd(DateTime(1970,1,1,0,0,0), Round(Value(Text(x))*1000,0), TimeUnit.Milliseconds)`.
+- Very large results come in several partitions; `Data` holds only the first. None of the
+  app's reads is anywhere near that size.
+- The app sends `User().Email` itself (accepted risk: a user who tampers with the request could
+  act as someone else; the app is used by senior management only). The safer alternative is
+  the trigger's `x-ms-user-email` header.

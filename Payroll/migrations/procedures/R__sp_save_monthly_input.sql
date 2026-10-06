@@ -12,6 +12,8 @@
    2026-10-02  V1.5.0: approvals in APP.T_F_APPROVAL; changed employees' checks (on their
                input row) go back to PENDING with the comment cleared; CORE -> APP;
                one role per user.
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CONVENTIONS
@@ -35,7 +37,7 @@
    [{"employee_id": 7, "absence_days": 2, "overtime_days": 0, "outstanding_days": 0,
      "bonus_usd": 0, "include_in_payroll": true, "notes": "...",
      "salary_override_usd": null, "fringe_benefit_override_usd": null}]
-   Roles: ACTUAL -> PAYROLL_ADMIN; BUDGET / FORECAST -> PAYROLL_ADMIN or BUDGET_EDITOR.
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ACTUAL: period must be OPEN or IN_APPROVAL; overrides are not allowed; a change resets
    started approvals (approved steps go back to PENDING + the changed employees' checks).
    BUDGET / FORECAST: scenario must be DRAFT or REJECTED and the period DRAFT.
@@ -75,13 +77,12 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || P_PERIOD_KEY || ' does not exist in this scenario.');
     END IF;
 
-    -- Role
+    -- Any active app user may do this (roles only limit approvals)
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE
-      AND (u.ROLE_CODE = 'PAYROLL_ADMIN' OR (:v_type <> 'ACTUAL' AND u.ROLE_CODE = 'BUDGET_EDITOR'));
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not allowed to edit this scenario.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     -- Editable?

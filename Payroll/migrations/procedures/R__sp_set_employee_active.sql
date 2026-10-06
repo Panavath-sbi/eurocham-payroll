@@ -7,6 +7,8 @@
    -------
    2026-09-29  Initial version.
    2026-10-02  V1.5.0: role check reads T_D_APP_USER.ROLE_CODE (one role per user).
+   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
+               only approvals are limited by role.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    CALLED FROM
@@ -26,7 +28,7 @@
    Activate: the employee rejoins the open month (if their contract covers it) and later months.
    Finalized months, budgets and forecasts are not changed.
    If the open month changes, its approvals reset and it is recalculated.
-   Role: PAYROLL_ADMIN. */
+   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3). */
 USE DATABASE PAYROLL_DB;
    
 CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_ACTIVE(P_USER_EMAIL TEXT, P_EMPLOYEE_ID INT, P_IS_ACTIVE BOOLEAN)
@@ -50,9 +52,9 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
     FROM APP.T_D_APP_USER u
-    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE AND u.ROLE_CODE IN ('PAYROLL_ADMIN');
+    WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
-        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Only a payroll admin can do this.');
+        RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     IF (P_IS_ACTIVE IS NULL) THEN
