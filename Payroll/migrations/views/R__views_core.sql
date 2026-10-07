@@ -18,6 +18,12 @@
    2026-10-05  V_D_EMPLOYEE: PHONE added (shown and edited on the Employee Register).
    2026-10-06  V_D_EMPLOYEE: BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NUMBER added; every app
                user may see them, so the Employee Register reads them with the employee list.
+   2026-10-07  V_D_EMPLOYEE: IS_CURRENT_VERSION now marks exactly one version per employee,
+               based on the calendar month: the version in force this month; else the latest
+               version already started (contract ended: the employee stays on the Employee
+               Register); else the earliest upcoming one (future start). Before, it was the
+               version without an end month, so employees whose contract had ended had no
+               current row and disappeared from the register.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
    ===================================================================================== */
 
@@ -25,8 +31,14 @@
    5. BASE DIMENSION AND FACT VIEWS (V_D_ / V_F_)
    ===================================================================================== */
 
+/* IS_CURRENT_VERSION (one TRUE row per employee), with M = the current calendar month:
+   1. the version with VALID_FROM <= M <= VALID_TO (in force this month);
+   2. if none: the version that started last before M (the contract has ended);
+   3. if none has started: the version that starts first (future start).
+   Versions never overlap, so among the versions already started the latest one is the
+   version in force when there is one: rules 1 and 2 are the same ordering. */
 CREATE OR REPLACE VIEW RPT.V_D_EMPLOYEE
-COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. Includes the employee''s bank details.'
+COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. IS_CURRENT_VERSION marks one version per employee (in force this calendar month, else the latest started, else the first upcoming). Includes the employee''s bank details.'
 AS
 SELECT
     c.CONTRACT_ID                                           AS EMPLOYEE_VERSION_KEY,
@@ -48,7 +60,16 @@ SELECT
     e.PLANNED_SCENARIO_ID,
     c.VALID_FROM_PERIOD_KEY,
     COALESCE(c.VALID_TO_PERIOD_KEY, 999912)                 AS VALID_TO_PERIOD_KEY,
-    (c.VALID_TO_PERIOD_KEY IS NULL)                         AS IS_CURRENT_VERSION,
+    (ROW_NUMBER() OVER (
+        PARTITION BY c.EMPLOYEE_ID
+        ORDER BY
+            -- versions already started first ...
+            IFF(c.VALID_FROM_PERIOD_KEY <= TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM')), 0, 1),
+            -- ... the latest started one; if none has started, the first upcoming one
+            IFF(c.VALID_FROM_PERIOD_KEY <= TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM')),
+                -c.VALID_FROM_PERIOD_KEY, c.VALID_FROM_PERIOD_KEY),
+            c.CONTRACT_ID DESC
+     ) = 1)                                                 AS IS_CURRENT_VERSION,
     c.POSITION,
     c.EMPLOYMENT_TYPE,
     c.CONTRACT_TYPE,
