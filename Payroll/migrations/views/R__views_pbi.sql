@@ -17,6 +17,11 @@
                RPT.V_F_COST_ALLOCATION; Tot_Allowance = outstanding-leave payouts only
                (payroll adjustments were removed). New RPT.V_D_PBI_SIGNATURE replaces the
                RPT.SIGNATURES table (same column names).
+   2026-10-08  Fct_Payroll (RPT.V_F_PBI_PAYROLL) is now one row per employee x month: the
+               department split is no longer applied (it is used in the app only), so an
+               employee appears once per month. Fund shares are read straight from
+               APP.T_F_FUND_ALLOCATION. CostCenter_Department stays as a column (value
+               'Default') so the report model keeps working.
    Repeatable file: re-deployed whenever it changes (CREATE OR REPLACE).
 
    NOTES
@@ -183,19 +188,17 @@ WHERE pr.SCENARIO_TYPE = 'ACTUAL'
 
 /* -------------------------------------------------------------------------------------
    Fct_Payroll  ->  RPT.V_F_PBI_PAYROLL
-   One row per employee x month x department, actual payroll of the current year
+   One row per employee x month, actual payroll of the current year
    (every calculated month: finalized months and the open month).
 
    * Totals use the same rules as RPT.V_F_PAYROLL_SUMMARY (by pay component CATEGORY):
      gross = EARNING, net = gross - EMPLOYEE_DEDUCTION, NSSF ER = EMPLOYER_CONTRIBUTION.
    * Tot_Allowance = OUTSTANDING_LEAVE payouts (payroll adjustments were removed).
    * CostCenter: ECCC -> 'CC_9999-Shared', CCIFC -> 'CCIFC'.
-   * Department split: shares come from RPT.V_F_COST_ALLOCATION,
-     normalised to 1 per employee and month. An unsplit employee gets one row with
-     department 'Default' and share 1. Money columns are multiplied by the department
-     share; days, rates, dependant count and percentages are not.
-   * Fund columns = allocated gross x fund share. Any share without a fund goes to the
-     employee's own entity fund (ECCC or CCIFC).
+   * No department split: the department split is used in the app only. CostCenter_Department
+     is always 'Default' (kept so the report model does not change).
+   * Fund columns = gross x fund share. Fund shares come from APP.T_F_FUND_ALLOCATION (percent / 100).
+     Any share without a fund goes to the employee's own entity fund (ECCC or CCIFC).
    * Position, residency and dependants: contract version in force in that month.
    * ToS_Rate = the rate of the tax bracket the taxable base (after dependant relief)
      falls in; 0.2 for non-residents.
@@ -205,28 +208,28 @@ WHERE pr.SCENARIO_TYPE = 'ACTUAL'
    ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL (
     "CostCenter"             COMMENT 'CC_9999-Shared for ECCC, CCIFC for CCIFC',
-    "CostCenter_Department"  COMMENT 'Department name; Default when the employee is not split',
+    "CostCenter_Department"  COMMENT 'Always Default (the department split is used in the app only)',
     "Employee_ID"            COMMENT 'Resource ID, e.g. HR-FRA-001',
     "Employee_Name"          COMMENT 'First name and last name',
     "Email"                  COMMENT 'Employee email',
     "TaxResidency_Name"      COMMENT 'Resident or Non-Resident, from the contract of the month',
     "Month"                  COMMENT 'Month code M01..M12',
     "Month_Full"             COMMENT 'Full month name, e.g. April',
-    "Tot_Allowance"          COMMENT 'Outstanding leave payout, USD (department share)',
+    "Tot_Allowance"          COMMENT 'Outstanding leave payout, USD',
     "Present_Working_Days"   COMMENT 'Working days minus absence days (not split)',
     "Dep_Count"              COMMENT 'Number of dependants (children + spouse) (not split)',
-    "Gross_Compensation"     COMMENT 'Gross pay USD = all earnings (department share)',
-    "Base_Salary"            COMMENT 'Base salary USD (department share)',
-    "ToS_Taxable_Base"       COMMENT 'Taxable base USD before dependant relief (department share)',
+    "Gross_Compensation"     COMMENT 'Gross pay USD = all earnings',
+    "Base_Salary"            COMMENT 'Base salary USD',
+    "ToS_Taxable_Base"       COMMENT 'Taxable base USD before dependant relief',
     "ToS_Rate"               COMMENT 'Tax bracket rate, e.g. 0.1; 0.2 for non-residents (not split)',
-    "NSSF_EE_Total"          COMMENT 'Employee NSSF USD (department share)',
-    "Annual_Bonus"           COMMENT 'Bonus USD (department share)',
-    "NSSF_ER_Total"          COMMENT 'Employer NSSF USD: pension + health + occupational risk (department share)',
-    "ToS_Withheld"           COMMENT 'Salary tax withheld USD (department share)',
-    "Net_Salary_Bank"        COMMENT 'Net pay USD paid to the bank (department share)',
-    "Overtime"               COMMENT 'Overtime USD (department share)',
-    "Seniority_Pay"          COMMENT 'Seniority payment USD (department share)',
-    "Unpaid_Leave"           COMMENT 'Unpaid leave USD, as stored by the calculation (department share)',
+    "NSSF_EE_Total"          COMMENT 'Employee NSSF USD',
+    "Annual_Bonus"           COMMENT 'Bonus USD',
+    "NSSF_ER_Total"          COMMENT 'Employer NSSF USD: pension + health + occupational risk',
+    "ToS_Withheld"           COMMENT 'Salary tax withheld USD',
+    "Net_Salary_Bank"        COMMENT 'Net pay USD paid to the bank',
+    "Overtime"               COMMENT 'Overtime USD',
+    "Seniority_Pay"          COMMENT 'Seniority payment USD',
+    "Unpaid_Leave"           COMMENT 'Unpaid leave USD, as stored by the calculation',
     "ECCC_Fund"              COMMENT 'Gross USD charged to the ECCC fund',
     "CCIFC_Fund"             COMMENT 'Gross USD charged to the CCIFC fund',
     "EU_Gate_Fund"           COMMENT 'Gross USD charged to the EU GATE fund',
@@ -234,15 +237,15 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL (
     "ECCC_Pct"               COMMENT 'ECCC fund share, 0..1',
     "CCIFC_Pct"              COMMENT 'CCIFC fund share, 0..1',
     "EU_Gate_Pct"            COMMENT 'EU GATE fund share, 0..1',
-    "Gross_Compensation_KHR" COMMENT 'Gross pay KHR (department share)',
-    "Base_Salary_KHR"        COMMENT 'Base salary KHR (department share)',
-    "ToS_Taxable_Base_KHR"   COMMENT 'Taxable base KHR (department share)',
-    "NSSF_EE_Total_KHR"      COMMENT 'Employee NSSF KHR (department share)',
-    "NSSF_ER_Total_KHR"      COMMENT 'Employer NSSF KHR (department share)',
-    "Annual_Bonus_KHR"       COMMENT 'Bonus KHR (department share)',
-    "ToS_Withheld_KHR"       COMMENT 'Salary tax KHR (department share)',
-    "Net_Salary_Bank_KHR"    COMMENT 'Net pay KHR, informational (department share)',
-    "Seniority_Pay_KHR"      COMMENT 'Seniority payment KHR (department share)',
+    "Gross_Compensation_KHR" COMMENT 'Gross pay KHR',
+    "Base_Salary_KHR"        COMMENT 'Base salary KHR',
+    "ToS_Taxable_Base_KHR"   COMMENT 'Taxable base KHR',
+    "NSSF_EE_Total_KHR"      COMMENT 'Employee NSSF KHR',
+    "NSSF_ER_Total_KHR"      COMMENT 'Employer NSSF KHR',
+    "Annual_Bonus_KHR"       COMMENT 'Bonus KHR',
+    "ToS_Withheld_KHR"       COMMENT 'Salary tax KHR',
+    "Net_Salary_Bank_KHR"    COMMENT 'Net pay KHR, informational',
+    "Seniority_Pay_KHR"      COMMENT 'Seniority payment KHR',
     "ECCC_Fund_KHR"          COMMENT 'Gross KHR charged to the ECCC fund',
     "CCIFC_Fund_KHR"         COMMENT 'Gross KHR charged to the CCIFC fund',
     "EU_Gate_Fund_KHR"       COMMENT 'Gross KHR charged to the EU GATE fund',
@@ -252,7 +255,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL (
     "EU_Gate_Pct_KHR"        COMMENT 'EU GATE fund share, 0..1 (same as EU_Gate_Pct)',
     "Employee_Position"      COMMENT 'Job title from the contract of the month'
 )
-COMMENT = 'Power BI: Fct_Payroll (actual payroll, current year, employee x month x department)'
+COMMENT = 'Power BI: Fct_Payroll (actual payroll, current year, employee x month)'
 AS
 WITH months AS (           -- actual payroll months of the current year
     SELECT sp.SCENARIO_ID, sp.PERIOD_KEY, sp.WORKING_DAYS, p.MONTH_NUMBER, p.PERIOD_START_DATE
@@ -294,26 +297,14 @@ amounts AS (               -- one row per employee and month, pay components piv
     JOIN months m                  ON m.SCENARIO_ID = l.SCENARIO_ID AND m.PERIOD_KEY = l.PERIOD_KEY
     GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID
 ),
-alloc AS (                 -- calculated fund x department shares, normalised to 1
-    SELECT ca.SCENARIO_ID, ca.PERIOD_KEY, ca.EMPLOYEE_ID, ca.FUND_CODE, ca.DEPARTMENT_CODE,
-           ca.ALLOCATION_SHARE
-             / NULLIF(SUM(ca.ALLOCATION_SHARE) OVER (PARTITION BY ca.SCENARIO_ID, ca.PERIOD_KEY, ca.EMPLOYEE_ID), 0) AS SHARE
-    FROM RPT.V_F_COST_ALLOCATION ca
-    JOIN months m ON m.SCENARIO_ID = ca.SCENARIO_ID AND m.PERIOD_KEY = ca.PERIOD_KEY
-),
-dept_share AS (            -- one row per department the employee is split over
-    SELECT SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, DEPARTMENT_CODE, SUM(SHARE) AS DEPT_SHARE
-    FROM alloc
-    GROUP BY SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, DEPARTMENT_CODE
-),
-fund_raw AS (              -- shares per fund; 0 when no allocation rows
+fund_raw AS (              -- fund shares 0..1 per employee and month; 0 when there is no fund split
     SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, am.ENTITY_CODE,
-           COALESCE(SUM(IFF(al.FUND_CODE = 'ECCC',    al.SHARE, 0)), 0) AS ECCC_RAW,
-           COALESCE(SUM(IFF(al.FUND_CODE = 'CCIFC',   al.SHARE, 0)), 0) AS CCIFC_RAW,
-           COALESCE(SUM(IFF(al.FUND_CODE = 'EU_GATE', al.SHARE, 0)), 0) AS EU_GATE_RAW
+           COALESCE(SUM(IFF(fa.FUND_CODE = 'ECCC',    fa.SHARE_PCT / 100, 0)), 0) AS ECCC_RAW,
+           COALESCE(SUM(IFF(fa.FUND_CODE = 'CCIFC',   fa.SHARE_PCT / 100, 0)), 0) AS CCIFC_RAW,
+           COALESCE(SUM(IFF(fa.FUND_CODE = 'EU_GATE', fa.SHARE_PCT / 100, 0)), 0) AS EU_GATE_RAW
     FROM amounts am
-    LEFT JOIN alloc al ON al.SCENARIO_ID = am.SCENARIO_ID AND al.PERIOD_KEY = am.PERIOD_KEY
-                      AND al.EMPLOYEE_ID = am.EMPLOYEE_ID
+    LEFT JOIN APP.T_F_FUND_ALLOCATION fa
+           ON fa.SCENARIO_ID = am.SCENARIO_ID AND fa.PERIOD_KEY = am.PERIOD_KEY AND fa.EMPLOYEE_ID = am.EMPLOYEE_ID
     GROUP BY am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, am.ENTITY_CODE
 ),
 fund_share AS (            -- any share without a fund goes to the employee's entity fund
@@ -346,48 +337,48 @@ tax_rate AS (              -- highest bracket whose lower bound the taxable base
 )
 SELECT
     IFF(am.ENTITY_CODE = 'ECCC', 'CC_9999-Shared', am.ENTITY_CODE)                  AS "CostCenter",
-    COALESCE(dep.DEPARTMENT_NAME, d.DEPARTMENT_CODE, 'Default')                     AS "CostCenter_Department",
+    'Default'                                                                       AS "CostCenter_Department",
     e.RESOURCE_CODE                                                                 AS "Employee_ID",
     TRIM(COALESCE(e.FIRST_NAME, '') || ' ' || COALESCE(e.LAST_NAME, ''))            AS "Employee_Name",
     e.EMAIL                                                                         AS "Email",
     IFF(mc.TAX_STATUS = 'NON_RESIDENT', 'Non-Resident', 'Resident')                 AS "TaxResidency_Name",
     'M' || LPAD(m.MONTH_NUMBER, 2, '0')                                             AS "Month",
     TO_CHAR(m.PERIOD_START_DATE, 'MMMM')                                            AS "Month_Full",
-    (am.ALLOWANCE_USD * ds.S)::FLOAT                                                AS "Tot_Allowance",
+    am.ALLOWANCE_USD::FLOAT                                                AS "Tot_Allowance",
     (COALESCE(m.WORKING_DAYS, 0) - COALESCE(pi.ABSENCE_DAYS, 0))::FLOAT             AS "Present_Working_Days",
     COALESCE(mc.DEP_COUNT, 0)::INT                                                  AS "Dep_Count",
-    (am.GROSS_USD * ds.S)::FLOAT                                                    AS "Gross_Compensation",
-    (am.BASE_SALARY_USD * ds.S)::FLOAT                                              AS "Base_Salary",
-    (am.TAXABLE_BASE_USD * ds.S)::FLOAT                                             AS "ToS_Taxable_Base",
+    am.GROSS_USD::FLOAT                                                    AS "Gross_Compensation",
+    am.BASE_SALARY_USD::FLOAT                                              AS "Base_Salary",
+    am.TAXABLE_BASE_USD::FLOAT                                             AS "ToS_Taxable_Base",
     IFF(mc.TAX_STATUS = 'NON_RESIDENT', 0.2, COALESCE(tr.TAX_RATE, 0))::FLOAT       AS "ToS_Rate",
-    (am.NSSF_EE_USD * ds.S)::FLOAT                                                  AS "NSSF_EE_Total",
-    (am.BONUS_USD * ds.S)::FLOAT                                                    AS "Annual_Bonus",
-    (am.NSSF_ER_USD * ds.S)::FLOAT                                                  AS "NSSF_ER_Total",
-    (am.SALARY_TAX_USD * ds.S)::FLOAT                                               AS "ToS_Withheld",
-    ((am.GROSS_USD - am.DEDUCTIONS_USD) * ds.S)::FLOAT                              AS "Net_Salary_Bank",
-    (am.OVERTIME_USD * ds.S)::FLOAT                                                 AS "Overtime",
-    (am.SENIORITY_USD * ds.S)::FLOAT                                                AS "Seniority_Pay",
-    (am.UNPAID_LEAVE_USD * ds.S)::FLOAT                                             AS "Unpaid_Leave",
-    (am.GROSS_USD * ds.S * fs.ECCC_SHARE)::FLOAT                                    AS "ECCC_Fund",
-    (am.GROSS_USD * ds.S * fs.CCIFC_SHARE)::FLOAT                                   AS "CCIFC_Fund",
-    (am.GROSS_USD * ds.S * fs.EU_GATE_SHARE)::FLOAT                                 AS "EU_Gate_Fund",
-    (am.GROSS_USD * ds.S)::FLOAT                                                    AS "Total_Fund",
+    am.NSSF_EE_USD::FLOAT                                                  AS "NSSF_EE_Total",
+    am.BONUS_USD::FLOAT                                                    AS "Annual_Bonus",
+    am.NSSF_ER_USD::FLOAT                                                  AS "NSSF_ER_Total",
+    am.SALARY_TAX_USD::FLOAT                                               AS "ToS_Withheld",
+    ((am.GROSS_USD - am.DEDUCTIONS_USD))::FLOAT                              AS "Net_Salary_Bank",
+    am.OVERTIME_USD::FLOAT                                                 AS "Overtime",
+    am.SENIORITY_USD::FLOAT                                                AS "Seniority_Pay",
+    am.UNPAID_LEAVE_USD::FLOAT                                             AS "Unpaid_Leave",
+    (am.GROSS_USD * fs.ECCC_SHARE)::FLOAT                                    AS "ECCC_Fund",
+    (am.GROSS_USD * fs.CCIFC_SHARE)::FLOAT                                   AS "CCIFC_Fund",
+    (am.GROSS_USD * fs.EU_GATE_SHARE)::FLOAT                                 AS "EU_Gate_Fund",
+    am.GROSS_USD::FLOAT                                                    AS "Total_Fund",
     fs.ECCC_SHARE::FLOAT                                                            AS "ECCC_Pct",
     fs.CCIFC_SHARE::FLOAT                                                           AS "CCIFC_Pct",
     fs.EU_GATE_SHARE::FLOAT                                                         AS "EU_Gate_Pct",
-    (am.GROSS_KHR * ds.S)::FLOAT                                                    AS "Gross_Compensation_KHR",
-    (am.BASE_SALARY_KHR * ds.S)::FLOAT                                              AS "Base_Salary_KHR",
-    (am.TAXABLE_BASE_KHR * ds.S)::FLOAT                                             AS "ToS_Taxable_Base_KHR",
-    (am.NSSF_EE_KHR * ds.S)::FLOAT                                                  AS "NSSF_EE_Total_KHR",
-    (am.NSSF_ER_KHR * ds.S)::FLOAT                                                  AS "NSSF_ER_Total_KHR",
-    (am.BONUS_KHR * ds.S)::FLOAT                                                    AS "Annual_Bonus_KHR",
-    (am.SALARY_TAX_KHR * ds.S)::FLOAT                                               AS "ToS_Withheld_KHR",
-    ((am.GROSS_KHR - am.DEDUCTIONS_KHR) * ds.S)::FLOAT                              AS "Net_Salary_Bank_KHR",
-    (am.SENIORITY_KHR * ds.S)::FLOAT                                                AS "Seniority_Pay_KHR",
-    (am.GROSS_KHR * ds.S * fs.ECCC_SHARE)::FLOAT                                    AS "ECCC_Fund_KHR",
-    (am.GROSS_KHR * ds.S * fs.CCIFC_SHARE)::FLOAT                                   AS "CCIFC_Fund_KHR",
-    (am.GROSS_KHR * ds.S * fs.EU_GATE_SHARE)::FLOAT                                 AS "EU_Gate_Fund_KHR",
-    (am.GROSS_KHR * ds.S)::FLOAT                                                    AS "Total_Fund_KHR",
+    am.GROSS_KHR::FLOAT                                                    AS "Gross_Compensation_KHR",
+    am.BASE_SALARY_KHR::FLOAT                                              AS "Base_Salary_KHR",
+    am.TAXABLE_BASE_KHR::FLOAT                                             AS "ToS_Taxable_Base_KHR",
+    am.NSSF_EE_KHR::FLOAT                                                  AS "NSSF_EE_Total_KHR",
+    am.NSSF_ER_KHR::FLOAT                                                  AS "NSSF_ER_Total_KHR",
+    am.BONUS_KHR::FLOAT                                                    AS "Annual_Bonus_KHR",
+    am.SALARY_TAX_KHR::FLOAT                                               AS "ToS_Withheld_KHR",
+    ((am.GROSS_KHR - am.DEDUCTIONS_KHR))::FLOAT                              AS "Net_Salary_Bank_KHR",
+    am.SENIORITY_KHR::FLOAT                                                AS "Seniority_Pay_KHR",
+    (am.GROSS_KHR * fs.ECCC_SHARE)::FLOAT                                    AS "ECCC_Fund_KHR",
+    (am.GROSS_KHR * fs.CCIFC_SHARE)::FLOAT                                   AS "CCIFC_Fund_KHR",
+    (am.GROSS_KHR * fs.EU_GATE_SHARE)::FLOAT                                 AS "EU_Gate_Fund_KHR",
+    am.GROSS_KHR::FLOAT                                                    AS "Total_Fund_KHR",
     fs.ECCC_SHARE::FLOAT                                                            AS "ECCC_Pct_KHR",
     fs.CCIFC_SHARE::FLOAT                                                           AS "CCIFC_Pct_KHR",
     fs.EU_GATE_SHARE::FLOAT                                                         AS "EU_Gate_Pct_KHR",
@@ -397,16 +388,12 @@ JOIN months m              ON m.SCENARIO_ID = am.SCENARIO_ID AND m.PERIOD_KEY = 
 JOIN APP.T_D_EMPLOYEE e    ON e.EMPLOYEE_ID = am.EMPLOYEE_ID AND NOT e.IS_PLANNED
 JOIN fund_share fs         ON fs.SCENARIO_ID = am.SCENARIO_ID AND fs.PERIOD_KEY = am.PERIOD_KEY
                           AND fs.EMPLOYEE_ID = am.EMPLOYEE_ID
-LEFT JOIN dept_share d     ON d.SCENARIO_ID = am.SCENARIO_ID AND d.PERIOD_KEY = am.PERIOD_KEY
-                          AND d.EMPLOYEE_ID = am.EMPLOYEE_ID
-LEFT JOIN APP.T_D_DEPARTMENT dep ON dep.DEPARTMENT_CODE = d.DEPARTMENT_CODE
 LEFT JOIN month_contract mc ON mc.SCENARIO_ID = am.SCENARIO_ID AND mc.PERIOD_KEY = am.PERIOD_KEY
                           AND mc.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN tax_rate tr      ON tr.SCENARIO_ID = am.SCENARIO_ID AND tr.PERIOD_KEY = am.PERIOD_KEY
                           AND tr.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN APP.T_F_PAYROLL_INPUT pi ON pi.SCENARIO_ID = am.SCENARIO_ID AND pi.PERIOD_KEY = am.PERIOD_KEY
-                          AND pi.EMPLOYEE_ID = am.EMPLOYEE_ID
-CROSS JOIN LATERAL (SELECT COALESCE(d.DEPT_SHARE, 1) AS S) ds;
+                          AND pi.EMPLOYEE_ID = am.EMPLOYEE_ID;
 
 
 /* -------------------------------------------------------------------------------------
