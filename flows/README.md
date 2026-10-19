@@ -33,11 +33,11 @@ containing the procedure's own `{"status": ..., "message": ...}`.
    ```
 5. Condition `empty(outputs('Statement'))`: if true, respond ERROR / Not allowed and Terminate.
 6. **Submit SQL Statement for Execution** (Snowflake connector): statement = `Statement`,
-   database `PAYROLL_DB`, role `SF_APA_PAYROLL-ETL`, the warehouse; schema empty.
+   database `DEV_PAYROLL_DB` (`PROD_PAYROLL_DB` for the production flow), role `SF_APA_PAYROLL-ETL`, the warehouse; schema empty.
 7. Respond: `status` OK, `rows` = `string(body('Submit_SQL_Statement_for_Execution')?['Data'])`.
 8. Parallel respond (run after: failed / timed out): `status` ERROR, `rows` = `[]`.
 
-When a procedure is added for the app, add its name to `Allowed` and to `A__grants.sql`.
+When a procedure is added for the app, add its name to `Allowed` and to `grants/grants.sql`.
 
 ## Calling it from Power Apps
 
