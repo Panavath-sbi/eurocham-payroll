@@ -17,7 +17,7 @@ calling the procedures. The objects are deployed with
 | `dev_data/` | Dummy data, check queries, snapshot save / restore | Dev only, run by hand |
 | `tests/` | Test calls for the procedures, each with its expected result | Dev only, run by hand |
 | `flows/` | The Power Automate flow (EuroCham-Snowflake) and how the app calls it | Built by hand in Power Automate |
-| `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) | Run by hand when agreed |
+| `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) and dev-only extras (`load_dummy_signatures.sql`: dummy approver signatures for Power BI) | Run by hand when agreed |
 | `docs/` | Documentation |  |
 
 The `PAYROLL_DB` folder name is only a folder: the real database comes from `${DB}`.
@@ -60,7 +60,8 @@ Each file's header describes its parameters, rules and the page that calls it.
 ## Setting up a dev database
 
 1. Deploy `db_scripts/` to Dev, then run `grants/grants.sql`.
-2. Run `dev_data/load_dummy_data.sql` and review the checks at its end.
+2. Run `dev_data/load_dummy_data.sql` and review the checks at its end. Optional:
+   `optional/load_dummy_signatures.sql` (dummy signatures for Power BI).
 3. Run `tests/test_01_payroll_cycle.sql`, then `tests/test_02_remaining_procedures.sql`,
    top to bottom, comparing each result with its expected value.
 
