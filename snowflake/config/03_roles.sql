@@ -174,8 +174,8 @@ USE ROLE "SF_APA_PAYROLL-DBA";
 /* =====================================================================================
    GRANTS FOR THE POWER APPS FLOW
    Gives the app's role, "SF_APA_PAYROLL-ETL", exactly what the "Payroll - SQL" flow needs:
-     * SELECT on the 21 RPT views the app reads
-     * USAGE (permission to call) on the 23 public procedures
+     * SELECT on the 22 RPT views the app reads
+     * USAGE (permission to call) on the 24 public procedures
    The procedures run with their owner's rights (EXECUTE AS OWNER), so calling them is
    enough to save data, and only through their checks.
    =====================================================================================
@@ -195,6 +195,8 @@ USE ROLE "SF_APA_PAYROLL-DBA";
    2026-10-19  Moved to grants/grants.sql for DLSync: PAYROLL_DB replaced by ${DB} (the deploy
                workflow substitutes DEV_PAYROLL_DB / PROD_PAYROLL_DB). SP_GET_EMPLOYEE_BANK retired:
                23 public procedures.
+   2026-10-20  V_P_STATUTORY_PARAMETER and SP_SAVE_STATUTORY_PARAMETER added (22 views,
+               24 public procedures).
 
    WHEN IT RUNS
    ------------
@@ -218,7 +220,7 @@ REVOKE ALL PRIVILEGES ON ALL VIEWS      IN SCHEMA DEV_PAYROLL_DB.RPT FROM ROLE "
 REVOKE ALL PRIVILEGES ON ALL PROCEDURES IN SCHEMA DEV_PAYROLL_DB.APP FROM ROLE "SF_APA_PAYROLL-ETL";
 
 /* -------------------------------------------------------------------------------------
-   2. The 21 views the app reads
+   2. The 22 views the app reads
    ------------------------------------------------------------------------------------- */
 GRANT USAGE ON SCHEMA DEV_PAYROLL_DB.RPT TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_D_EMPLOYEE             TO ROLE "SF_APA_PAYROLL-ETL";
@@ -242,9 +244,10 @@ GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_P_APPROVAL_STEP        TO ROLE "SF_APA
 GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_D_APP_USER             TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_F_PAYROLL_MONTH        TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_F_DASHBOARD_MONTH      TO ROLE "SF_APA_PAYROLL-ETL";
+GRANT SELECT ON VIEW DEV_PAYROLL_DB.RPT.V_P_STATUTORY_PARAMETER  TO ROLE "SF_APA_PAYROLL-ETL";
 
 /* -------------------------------------------------------------------------------------
-   3. The 23 public procedures (Snowflake identifies a procedure by its name and parameter
+   3. The 24 public procedures (Snowflake identifies a procedure by its name and parameter
       types, so each line lists the exact types)
    ------------------------------------------------------------------------------------- */
 GRANT USAGE ON SCHEMA DEV_PAYROLL_DB.APP TO ROLE "SF_APA_PAYROLL-ETL";
@@ -266,6 +269,7 @@ GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_FUND_ALLOCATION(TEXT, INT, I
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_MONTHLY_INPUT(TEXT, INT, INT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_PLANNED_HIRE(TEXT, INT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_SCENARIO_EMPLOYEE(TEXT, INT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
+GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_STATUTORY_PARAMETER(TEXT, INT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SAVE_WORKING_DAYS(TEXT, TEXT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SET_EMPLOYEE_ACTIVE(TEXT, INT, BOOLEAN) TO ROLE "SF_APA_PAYROLL-ETL";
 GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_SET_EMPLOYEE_CHECK(TEXT, INT, INT, TEXT, TEXT, TEXT) TO ROLE "SF_APA_PAYROLL-ETL";
@@ -284,7 +288,7 @@ GRANT USAGE ON PROCEDURE DEV_PAYROLL_DB.APP.SP_UNDO_APPROVAL(TEXT, INT, INT, INT
 -- REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA DEV_PAYROLL_DB.APP FROM ROLE "SF_APA_PAYROLL-ETL";
 
 /* -------------------------------------------------------------------------------------
-   5. Check. Expected: USAGE on RPT and APP (plus the database, from IT); SELECT on 21 views;
-      USAGE on 23 procedures (plus table rights while section 4 is off).
+   5. Check. Expected: USAGE on RPT and APP (plus the database, from IT); SELECT on 22 views;
+      USAGE on 24 procedures (plus table rights while section 4 is off).
    ------------------------------------------------------------------------------------- */
 SHOW GRANTS TO ROLE "SF_APA_PAYROLL-ETL";

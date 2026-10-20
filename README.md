@@ -16,7 +16,7 @@ GitHub Actions (`.github/workflows/dbt-uat.yml`).
 | `snowflake/config/` | `01_database`, `02_schema`, `03_roles` (incl. the app role's grants: run after every deploy), `04_warehouse` | Run by hand |
 | `dev_data/` | Dummy data, check queries, snapshot save / restore | Dev only, run by hand |
 | `tests/` | Test calls for the procedures, each with its expected result | Dev only, run by hand |
-| `flows/` | The Power Automate flow (EuroCham-Snowflake) and how the app calls it | Built by hand in Power Automate |
+| `flows/` | The Power Automate flow (SF_EuroCham) and how the app calls it | Built by hand in Power Automate |
 | `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) and dev-only extras (`load_dummy_signatures.sql`: dummy approver signatures for Power BI) | Run by hand when agreed |
 | `docs/` | Documentation |  |
 

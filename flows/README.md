@@ -1,4 +1,4 @@
-# Power Automate flow: EuroCham-Snowflake
+# Power Automate flow: SF_EuroCham
 
 How Power Apps talks to Snowflake. One flow for everything: reads and procedure calls.
 
@@ -41,17 +41,17 @@ When a procedure is added for the app, add its name to `Allowed` and to `snowfla
 
 ## Calling it from Power Apps
 
-The flow is added to the app as `'EuroCham-Snowflake'`.
+The flow is added to the app as `'SF_EuroCham'`.
 
 Read:
 ```
-Set(varAns, 'EuroCham-Snowflake'.Run("SELECT * FROM RPT.V_D_LOOKUP WHERE IS_ACTIVE"));
+Set(varAns, 'SF_EuroCham'.Run("SELECT * FROM RPT.V_D_LOOKUP WHERE IS_ACTIVE"));
 ClearCollect(colX, ForAll(Table(ParseJSON(varAns.rows)) As r, { Code: Text(r.Value.CODE) }));
 ```
 
 Procedure:
 ```
-Set(varAns, 'EuroCham-Snowflake'.Run("CALL APP.SP_APPROVE_STEP('" & User().Email & "', " & varActualScenarioId & ", " & varOpenPeriod & ", 1, '" & Substitute(txtComment.Text, "'", "''") & "')"));
+Set(varAns, 'SF_EuroCham'.Run("CALL APP.SP_APPROVE_STEP('" & User().Email & "', " & varActualScenarioId & ", " & varOpenPeriod & ", 1, '" & Substitute(txtComment.Text, "'", "''") & "')"));
 Set(varRes, Index(Table(ParseJSON(varAns.rows)), 1).Value.SP_APPROVE_STEP);   // varRes.status, varRes.message
 ```
 
