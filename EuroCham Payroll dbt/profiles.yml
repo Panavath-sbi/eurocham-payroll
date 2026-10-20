@@ -1,0 +1,28 @@
+EUROCHAM_PAYROLL:
+  target: uat
+  outputs:
+    # Tables + procedures go to APP, views to RPT (macros/generate_schema_name.sql); `schema` below is only dbt's default.
+    # This account
+    dev:
+      type: snowflake
+      role: '"SF_APA_PAYROLL-DBA"'
+      warehouse: SANDBOX_WH
+      database: DEV_PAYROLL_DB
+      schema: APP
+      threads: 8
+    # This account, same database as dev: APP_UAT + RPT_UAT (snowflake/config/02_schema.sql)
+    uat:
+      type: snowflake
+      role: '"SF_APA_PAYROLL-DBA"'
+      warehouse: SANDBOX_WH
+      database: DEV_PAYROLL_DB
+      schema: APP_UAT
+      threads: 8
+    # Other account
+    prod:
+      type: snowflake
+      role: '"<PROD_DEPLOY_ROLE>"'   # TODO prod account names
+      warehouse: <PROD_WH>
+      database: PROD_PAYROLL_DB
+      schema: APP
+      threads: 8

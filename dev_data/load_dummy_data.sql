@@ -1,6 +1,6 @@
 /* =====================================================================================
    DEV DATA - DUMMY DATA AND CHECKS
-   Development / test only. Never run in production. Run after the DLSync deploy.
+   Development / test only. Never run in production. Run after the dbt build.
    =====================================================================================
 
    HISTORY

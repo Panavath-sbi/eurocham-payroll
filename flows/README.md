@@ -37,7 +37,7 @@ containing the procedure's own `{"status": ..., "message": ...}`.
 7. Respond: `status` OK, `rows` = `string(body('Submit_SQL_Statement_for_Execution')?['Data'])`.
 8. Parallel respond (run after: failed / timed out): `status` ERROR, `rows` = `[]`.
 
-When a procedure is added for the app, add its name to `Allowed` and to `grants/grants.sql`.
+When a procedure is added for the app, add its name to `Allowed` and to `snowflake/config/03_roles.sql` (section 10).
 
 ## Calling it from Power Apps
 

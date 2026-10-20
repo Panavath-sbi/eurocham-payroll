@@ -1,6 +1,6 @@
 /* =====================================================================================
    PAYROLL DATA MODEL - 04 TESTS: PAYROLL CYCLE PROCEDURES
-   Run on a fresh dev database: the DLSync deploy, then dev_data/load_dummy_data.sql,
+   Run on a fresh dev database: the dbt build, then dev_data/load_dummy_data.sql,
    then this script, top to bottom. Never run in production.
    Each test states the expected result. The tests change the dummy data.
    =====================================================================================

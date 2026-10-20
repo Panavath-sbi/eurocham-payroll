@@ -2,46 +2,42 @@
 
 Database objects for the EuroCham payroll, budget and forecast app (ECCC and CCIFC):
 tables, views and stored procedures. Power Apps reads the views and writes only by
-calling the procedures. The objects are deployed with
-[DLSync](https://github.com/Snowflake-Labs/dlsync) from GitHub Actions.
+calling the procedures. The objects are deployed by a dbt project on Snowflake, run from
+GitHub Actions (`.github/workflows/dbt-uat.yml`).
 
 ## Layout
 
 | Folder | Contents | Deployed to |
 | --- | --- | --- |
-| `db_scripts/main/PAYROLL_DB/APP/TABLES/` | One file per table (migration scripts: numbered versions) | Dev and Prod, by DLSync |
-| `db_scripts/main/PAYROLL_DB/APP/PROCEDURES/` | One file per stored procedure (`CREATE OR REPLACE`) | Dev and Prod, by DLSync |
-| `db_scripts/main/PAYROLL_DB/RPT/VIEWS/` | One file per view (`CREATE OR REPLACE`) | Dev and Prod, by DLSync |
-| `db_scripts/parameter-dev.properties`, `parameter-prod.properties` | The value of `${DB}` per environment (`DEV_PAYROLL_DB`, `PROD_PAYROLL_DB`) | – |
-| `grants/grants.sql` | Rights of the app's role; run after every deploy | Dev and Prod |
+| `EuroCham Payroll dbt/models/tables/` | One file per table (`CREATE TABLE IF NOT EXISTS` + reference rows inserted once) | APP schema, by dbt |
+| `EuroCham Payroll dbt/models/procedures/` | One file per stored procedure (`CREATE OR REPLACE`) | APP schema, by dbt |
+| `EuroCham Payroll dbt/models/views/` | One file per view (`CREATE OR REPLACE`) | RPT schema, by dbt |
+| `EuroCham Payroll dbt/profiles.yml` | Targets: `dev` (`DEV_PAYROLL_DB.APP/RPT`), `uat` (`DEV_PAYROLL_DB.APP_UAT/RPT_UAT`, default), `prod` (`PROD_PAYROLL_DB.APP/RPT`) | – |
+| `snowflake/config/` | `01_database`, `02_schema`, `03_roles` (incl. the app role's grants: run after every deploy), `04_warehouse` | Run by hand |
 | `dev_data/` | Dummy data, check queries, snapshot save / restore | Dev only, run by hand |
 | `tests/` | Test calls for the procedures, each with its expected result | Dev only, run by hand |
 | `flows/` | The Power Automate flow (EuroCham-Snowflake) and how the app calls it | Built by hand in Power Automate |
 | `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) and dev-only extras (`load_dummy_signatures.sql`: dummy approver signatures for Power BI) | Run by hand when agreed |
 | `docs/` | Documentation |  |
 
-The `PAYROLL_DB` folder name is only a folder: the real database comes from `${DB}`.
-
 ## Script rules
 
-- One object per file; the file name is the object name in capitals (`T_D_ENTITY.SQL`).
-- Every object name is written `${DB}.APP.<name>` or `${DB}.RPT.<name>`. No `USE DATABASE`.
-- **Tables** use versions: `---version: 0` creates the table, later changes are added as
-  `---version: 1`, `2`, … (`ALTER TABLE …`). Never edit a version that has been deployed.
-  Each version has a one-line `---rollback:` and `---verify:`.
+- One object per file; the file name is the object name in lower case (`t_d_entity.sql`).
+- Every name is written `{{ app() }}.<name>` (tables, procedures) or `{{ rpt() }}.<name>` (views):
+  `APP` / `RPT`, or `APP_UAT` / `RPT_UAT` on the uat target; the database comes from the target. No `USE DATABASE`.
+- The first line lists the objects the file uses: `-- depends_on: {{ ref('t_d_period') }}, …` (build order).
+- **Tables** are never replaced: a new column is an `ALTER TABLE {{ app() }}.<name> ADD COLUMN IF NOT EXISTS …`
+  line added to the table's file. Renames and drops are written by hand.
 - **Views and procedures** are edited in place. They carry `COPY GRANTS`, so the app's
   rights survive a redeploy. Procedures keep `COMMENT` before `EXECUTE AS OWNER`.
 - Every file keeps its **History** header with a dated line per change.
-- A new procedure or view for the app also needs a line in `grants/grants.sql`.
+- A new procedure or view for the app also needs a line in `snowflake/config/03_roles.sql` (section 10).
 
 ## How a change reaches Snowflake
 
-1. Edit the file on a branch.
-2. Open a pull request: the plan (what DLSync would change) is posted on it.
-3. Merge into `develop`: deployed to Dev (`DEV_PAYROLL_DB`).
-4. Merge `develop` into `main`: deployed to Prod (`PROD_PAYROLL_DB`).
-
-(The GitHub workflows are added in a later step.)
+1. Edit the file on the `eurocham-uat` branch and push.
+2. GitHub Actions deploys the project (`snow dbt deploy`) and runs `dbt build` on the `uat` target
+   (`DEV_PAYROLL_DB.APP_UAT` / `RPT_UAT`).
 
 ## Stored procedures (APP, 25)
 
@@ -59,7 +55,7 @@ Each file's header describes its parameters, rules and the page that calls it.
 
 ## Setting up a dev database
 
-1. Deploy `db_scripts/` to Dev, then run `grants/grants.sql`.
+1. Run `snowflake/config/02_schema.sql`, `dbt build --target dev`, then section 10 of `snowflake/config/03_roles.sql`.
 2. Run `dev_data/load_dummy_data.sql` and review the checks at its end. Optional:
    `optional/load_dummy_signatures.sql` (dummy signatures for Power BI).
 3. Run `tests/test_01_payroll_cycle.sql`, then `tests/test_02_remaining_procedures.sql`,
