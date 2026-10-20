@@ -23,6 +23,6 @@ EUROCHAM_PAYROLL:
       type: snowflake
       role: '"<PROD_DEPLOY_ROLE>"'   # TODO prod account names
       warehouse: <PROD_WH>
-      database: PROD_PAYROLL_DB
-      schema: APP
+      database: <PROD_DB>
+      schema: <PROD_SCHEMA>
       threads: 8
