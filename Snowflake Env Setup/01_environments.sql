@@ -1,18 +1,19 @@
 -------------------------------------------------------------------------------
--- 01 ENVIRONMENT - SBI Payroll: warehouse, database, schemas 
+-- 01 ENVIRONMENT - SBI Payroll: database, schemas
+-- Warehouse {{ warehouse }} is shared and created elsewhere.
 -------------------------------------------------------------------------------
 USE ROLE SYSADMIN;
 
 -------------------------------------------------------------------------------
--- 2. DATABASE
+-- 1. DATABASE
 -------------------------------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS DEV_PAYROLL_DB
+CREATE DATABASE IF NOT EXISTS {{ database }}
     COMMENT = 'Payroll data development database for SBI APAC and customer payroll processing';
 
 -------------------------------------------------------------------------------
--- 3. SCHEMAS (PUBLIC is kept: the session policy in 02_rbac_roles.sql lives there)
+-- 2. SCHEMAS
 -------------------------------------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS DEV_PAYROLL_DB.MART
+CREATE SCHEMA IF NOT EXISTS {{ database }}.MART
     COMMENT = 'SBI Payroll - development (dbt target dev)';
-CREATE SCHEMA IF NOT EXISTS DEV_PAYROLL_DB.UAT
+CREATE SCHEMA IF NOT EXISTS {{ database }}.UAT
     COMMENT = 'SBI Payroll - user acceptance testing (dbt target uat)';
