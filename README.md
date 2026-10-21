@@ -24,7 +24,7 @@ GitHub Actions (`.github/workflows/dbt-uat.yml`).
 
 - One object per file; the file name is the object name in lower case (`t_d_entity.sql`).
 - Every name is written `{{ app() }}.<name>` (tables, procedures) or `{{ rpt() }}.<name>` (views):
-  `APP` / `RPT`, or `APP_UAT` / `RPT_UAT` on the uat target; the database comes from the target. No `USE DATABASE`.
+  `APP` / `RPT`, or `APP_UAT` / `RPT_UAT` on the uat target, `APP_PROD` / `RPT_PROD` on prod; the database comes from the target. No `USE DATABASE`.
 - The first line lists the objects the file uses: `-- depends_on: {{ ref('t_d_period') }}, …` (build order).
 - **Tables** are never replaced: a new column is an `ALTER TABLE {{ app() }}.<name> ADD COLUMN IF NOT EXISTS …`
   line added to the table's file. Renames and drops are written by hand.
