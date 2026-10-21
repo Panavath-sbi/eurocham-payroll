@@ -11,7 +11,7 @@ macro-paths:
 # Every model runs its own DDL (macros/ddl_table.sql):
 #   tables      CREATE TABLE IF NOT EXISTS + reference rows inserted once while the table is empty
 #   views/procs CREATE OR REPLACE ... COPY GRANTS (the app's grants survive a redeploy)
-# Names are written {{ app() }}.T_x / {{ rpt() }}.V_x (macros/schemas.sql: APP/RPT, uat APP_UAT/RPT_UAT; database = target);
+# Names are written bare (T_x, V_x, SP_x): they land in the schema of the target (profiles.yml);
 # the first line `-- depends_on: {{ ref() }}` keeps the build order.
 # Grants are not managed by dbt: snowflake/config/03_roles.sql (section 10) by hand.
 

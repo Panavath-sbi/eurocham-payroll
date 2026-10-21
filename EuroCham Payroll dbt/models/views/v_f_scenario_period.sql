@@ -21,7 +21,7 @@
 /* -------------------------------------------------------------------------------------
    Months of a scenario: period dropdown, FX card, open-month logic
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ rpt() }}.V_F_SCENARIO_PERIOD (
+CREATE OR REPLACE VIEW V_F_SCENARIO_PERIOD (
     SCENARIO_ID, SCENARIO_TYPE, SCENARIO_NAME, PERIOD_KEY, PERIOD_LABEL, YEAR, MONTH_NUMBER,
     PERIOD_STATUS,
     IS_OPEN COMMENT 'TRUE for the actual month that can still be edited or approved (OPEN or IN_APPROVAL)',
@@ -45,6 +45,6 @@ SELECT
     sp.FX_RATE_NSSF,
     sp.FINALIZED_AT,
     sp.FINALIZED_BY
-FROM {{ app() }}.T_F_SCENARIO_PERIOD sp
-JOIN {{ app() }}.T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID
-JOIN {{ app() }}.T_D_PERIOD p   ON p.PERIOD_KEY = sp.PERIOD_KEY;
+FROM T_F_SCENARIO_PERIOD sp
+JOIN T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID
+JOIN T_D_PERIOD p   ON p.PERIOD_KEY = sp.PERIOD_KEY;

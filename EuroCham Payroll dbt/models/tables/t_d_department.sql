@@ -1,6 +1,6 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_DEPARTMENT (
+CREATE TABLE IF NOT EXISTS T_D_DEPARTMENT (
     DEPARTMENT_CODE  TEXT      NOT NULL COMMENT 'Department / cost center code',
     DEPARTMENT_NAME  TEXT      NOT NULL COMMENT 'Department display name',
     IS_ACTIVE        BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Whether new allocations can use this department',
@@ -18,9 +18,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ app() }}.T_D_DEPARTMENT;
+    SELECT COUNT(*) INTO :n FROM T_D_DEPARTMENT;
     IF (n = 0) THEN
-        INSERT INTO {{ app() }}.T_D_DEPARTMENT (DEPARTMENT_CODE, DEPARTMENT_NAME, DISPLAY_ORDER) VALUES
+        INSERT INTO T_D_DEPARTMENT (DEPARTMENT_CODE, DEPARTMENT_NAME, DISPLAY_ORDER) VALUES
             ('ADMIN',         'Admin',         1),
             ('ADVOCACY',      'Advocacy',      2),
             ('COMMUNICATION', 'Communication', 3),

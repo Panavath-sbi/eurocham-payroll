@@ -22,7 +22,7 @@
    Monthly inputs with names and the employee check: Monthly Inputs grid, Approval
    validation buttons, budget "Show Details"
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ rpt() }}.V_F_PAYROLL_INPUT (
+CREATE OR REPLACE VIEW V_F_PAYROLL_INPUT (
     SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, RESOURCE_CODE,
     FULL_NAME COMMENT 'First and last name',
     INCLUDE_IN_PAYROLL, ABSENCE_DAYS, OVERTIME_DAYS, OUTSTANDING_DAYS, BONUS_USD,
@@ -53,5 +53,5 @@ SELECT
     i.CHECKED_BY,
     i.UPDATE_DATE,
     i.UPDATE_BY
-FROM {{ app() }}.T_F_PAYROLL_INPUT i
-JOIN {{ app() }}.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = i.EMPLOYEE_ID;
+FROM T_F_PAYROLL_INPUT i
+JOIN T_D_EMPLOYEE e ON e.EMPLOYEE_ID = i.EMPLOYEE_ID;

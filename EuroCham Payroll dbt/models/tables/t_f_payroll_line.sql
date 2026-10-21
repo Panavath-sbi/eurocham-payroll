@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_f_scenario_period') }}, {{ ref('t_d_employee') }}, {{ ref('t_d_pay_component') }}, {{ ref('t_d_entity') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.3; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_PAYROLL_LINE (
+CREATE TABLE IF NOT EXISTS T_F_PAYROLL_LINE (
     SCENARIO_ID           INT       NOT NULL COMMENT 'Scenario (actual, budget or forecast)',
     PERIOD_KEY            INT       NOT NULL COMMENT 'Period',
     EMPLOYEE_ID           INT       NOT NULL COMMENT 'Employee',
@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_PAYROLL_LINE (
     INSERT_BY             TEXT      DEFAULT CURRENT_USER      COMMENT 'User who triggered the calculation',
     UPDATE_BY             TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_F_PAYROLL_LINE PRIMARY KEY (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, PAY_COMPONENT_CODE),
-    CONSTRAINT FK_LINE_SP FOREIGN KEY (SCENARIO_ID, PERIOD_KEY) REFERENCES {{ app() }}.T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY),
-    CONSTRAINT FK_LINE_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES {{ app() }}.T_D_EMPLOYEE (EMPLOYEE_ID),
-    CONSTRAINT FK_LINE_COMPONENT FOREIGN KEY (PAY_COMPONENT_CODE) REFERENCES {{ app() }}.T_D_PAY_COMPONENT (PAY_COMPONENT_CODE),
-    CONSTRAINT FK_LINE_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES {{ app() }}.T_D_ENTITY (ENTITY_CODE)
+    CONSTRAINT FK_LINE_SP FOREIGN KEY (SCENARIO_ID, PERIOD_KEY) REFERENCES T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY),
+    CONSTRAINT FK_LINE_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES T_D_EMPLOYEE (EMPLOYEE_ID),
+    CONSTRAINT FK_LINE_COMPONENT FOREIGN KEY (PAY_COMPONENT_CODE) REFERENCES T_D_PAY_COMPONENT (PAY_COMPONENT_CODE),
+    CONSTRAINT FK_LINE_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES T_D_ENTITY (ENTITY_CODE)
 ) COMMENT = 'Grain: one row per scenario x period x employee x pay component. Holds current AND historical payroll; finalized periods are never recalculated.';

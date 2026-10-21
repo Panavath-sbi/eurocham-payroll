@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_d_employee') }}, {{ ref('t_d_entity') }}, {{ ref('t_d_period') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2; V1.6.0 added NON_RESIDENT_FROM and NON_RESIDENT_TO).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_EMPLOYEE_CONTRACT (
+CREATE TABLE IF NOT EXISTS T_D_EMPLOYEE_CONTRACT (
     CONTRACT_ID            INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key of the contract version (EMPLOYEE_VERSION_KEY in facts)',
     EMPLOYEE_ID            INT       NOT NULL COMMENT 'Employee',
     VALID_FROM_PERIOD_KEY  INT       NOT NULL COMMENT 'First period these terms apply to',
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_EMPLOYEE_CONTRACT (
     NON_RESIDENT_FROM    DATE               COMMENT 'Non-residents only: first day of the non-residency (information)',
     NON_RESIDENT_TO      DATE               COMMENT 'Non-residents only: last day of the non-residency. When a payroll month opens after this date, a new contract version makes the employee RESIDENT from that month.',
     CONSTRAINT PK_T_D_EMPLOYEE_CONTRACT PRIMARY KEY (CONTRACT_ID),
-    CONSTRAINT FK_CONTRACT_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES {{ app() }}.T_D_EMPLOYEE (EMPLOYEE_ID),
-    CONSTRAINT FK_CONTRACT_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES {{ app() }}.T_D_ENTITY (ENTITY_CODE),
-    CONSTRAINT FK_CONTRACT_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES {{ app() }}.T_D_PERIOD (PERIOD_KEY)
+    CONSTRAINT FK_CONTRACT_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES T_D_EMPLOYEE (EMPLOYEE_ID),
+    CONSTRAINT FK_CONTRACT_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES T_D_ENTITY (ENTITY_CODE),
+    CONSTRAINT FK_CONTRACT_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Effective-dated pay terms (SCD Type 2). A salary or dependant change closes the current version and adds a new one, so past payrolls keep the terms that applied at the time.';

@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_d_scenario') }}, {{ ref('t_d_employee') }}, {{ ref('t_d_employee_contract') }}, {{ ref('t_d_entity') }}, {{ ref('t_d_period') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_SCENARIO_EMPLOYEE (
+CREATE TABLE IF NOT EXISTS T_D_SCENARIO_EMPLOYEE (
     SCENARIO_ID             INT       NOT NULL COMMENT 'Budget or forecast scenario',
     EMPLOYEE_ID             INT       NOT NULL COMMENT 'Employee (actual or planned hire)',
     SOURCE_CONTRACT_ID      INT                COMMENT 'Contract version the terms were copied from; NULL for planned hires',
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_SCENARIO_EMPLOYEE (
     INSERT_BY               TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
     UPDATE_BY               TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_D_SCENARIO_EMPLOYEE PRIMARY KEY (SCENARIO_ID, EMPLOYEE_ID),
-    CONSTRAINT FK_SCEN_EMP_SCENARIO FOREIGN KEY (SCENARIO_ID) REFERENCES {{ app() }}.T_D_SCENARIO (SCENARIO_ID),
-    CONSTRAINT FK_SCEN_EMP_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES {{ app() }}.T_D_EMPLOYEE (EMPLOYEE_ID),
-    CONSTRAINT FK_SCEN_EMP_CONTRACT FOREIGN KEY (SOURCE_CONTRACT_ID) REFERENCES {{ app() }}.T_D_EMPLOYEE_CONTRACT (CONTRACT_ID),
-    CONSTRAINT FK_SCEN_EMP_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES {{ app() }}.T_D_ENTITY (ENTITY_CODE),
-    CONSTRAINT FK_SCEN_EMP_REVAL FOREIGN KEY (REVALUATION_PERIOD_KEY) REFERENCES {{ app() }}.T_D_PERIOD (PERIOD_KEY)
+    CONSTRAINT FK_SCEN_EMP_SCENARIO FOREIGN KEY (SCENARIO_ID) REFERENCES T_D_SCENARIO (SCENARIO_ID),
+    CONSTRAINT FK_SCEN_EMP_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES T_D_EMPLOYEE (EMPLOYEE_ID),
+    CONSTRAINT FK_SCEN_EMP_CONTRACT FOREIGN KEY (SOURCE_CONTRACT_ID) REFERENCES T_D_EMPLOYEE_CONTRACT (CONTRACT_ID),
+    CONSTRAINT FK_SCEN_EMP_ENTITY FOREIGN KEY (ENTITY_CODE) REFERENCES T_D_ENTITY (ENTITY_CODE),
+    CONSTRAINT FK_SCEN_EMP_REVAL FOREIGN KEY (REVALUATION_PERIOD_KEY) REFERENCES T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Employee terms within a budget or forecast scenario (one row per employee per scenario). Copied from the actual contracts (or another scenario) when the scenario is created, then edited independently. Never used for actual payroll.';

@@ -24,7 +24,7 @@
 /* -------------------------------------------------------------------------------------
    Employee terms inside a budget or forecast: Budget Input grid, Forecast page
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ rpt() }}.V_D_SCENARIO_EMPLOYEE (
+CREATE OR REPLACE VIEW V_D_SCENARIO_EMPLOYEE (
     SCENARIO_ID, EMPLOYEE_ID, RESOURCE_CODE,
     FULL_NAME COMMENT 'First and last name',
     IS_PLANNED, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
@@ -64,18 +64,18 @@ SELECT
     pm.START_PK,
     pm.END_PK,
     COALESCE(pm.BONUS, 0)
-FROM {{ app() }}.T_D_SCENARIO_EMPLOYEE se
-JOIN {{ app() }}.T_D_EMPLOYEE e ON e.EMPLOYEE_ID = se.EMPLOYEE_ID
+FROM T_D_SCENARIO_EMPLOYEE se
+JOIN T_D_EMPLOYEE e ON e.EMPLOYEE_ID = se.EMPLOYEE_ID
 LEFT JOIN (SELECT EMPLOYEE_ID, MAX(VALID_FROM_PERIOD_KEY) AS LAST_FROM
-           FROM {{ app() }}.T_D_EMPLOYEE_CONTRACT GROUP BY EMPLOYEE_ID) lc
+           FROM T_D_EMPLOYEE_CONTRACT GROUP BY EMPLOYEE_ID) lc
        ON lc.EMPLOYEE_ID = se.EMPLOYEE_ID
 LEFT JOIN (SELECT x.SCENARIO_ID, se2.EMPLOYEE_ID,
                   MIN(IFF(COALESCE(i.INCLUDE_IN_PAYROLL, TRUE), x.PERIOD_KEY, NULL)) AS START_PK,
                   MAX(IFF(COALESCE(i.INCLUDE_IN_PAYROLL, TRUE), x.PERIOD_KEY, NULL)) AS END_PK,
                   SUM(COALESCE(i.BONUS_USD, 0))                                       AS BONUS
-           FROM {{ app() }}.T_F_SCENARIO_PERIOD x
-           JOIN {{ app() }}.T_D_SCENARIO_EMPLOYEE se2 ON se2.SCENARIO_ID = x.SCENARIO_ID
-           LEFT JOIN {{ app() }}.T_F_PAYROLL_INPUT i
+           FROM T_F_SCENARIO_PERIOD x
+           JOIN T_D_SCENARIO_EMPLOYEE se2 ON se2.SCENARIO_ID = x.SCENARIO_ID
+           LEFT JOIN T_F_PAYROLL_INPUT i
                   ON i.SCENARIO_ID = x.SCENARIO_ID AND i.PERIOD_KEY = x.PERIOD_KEY AND i.EMPLOYEE_ID = se2.EMPLOYEE_ID
            GROUP BY x.SCENARIO_ID, se2.EMPLOYEE_ID) pm
        ON pm.SCENARIO_ID = se.SCENARIO_ID AND pm.EMPLOYEE_ID = se.EMPLOYEE_ID;

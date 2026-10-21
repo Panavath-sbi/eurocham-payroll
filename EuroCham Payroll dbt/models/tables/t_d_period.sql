@@ -1,6 +1,6 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created in CORE by V1.0.1, moved to APP by V1.5.0, which added FX_RATE_NBC and FX_RATE_NSSF).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_PERIOD (
+CREATE TABLE IF NOT EXISTS T_D_PERIOD (
     PERIOD_KEY          INT       NOT NULL COMMENT 'Period identifier in YYYYMM form, e.g. 202609',
     PERIOD_START_DATE   DATE      NOT NULL COMMENT 'First day of the month',
     PERIOD_END_DATE     DATE      NOT NULL COMMENT 'Last day of the month',
@@ -30,9 +30,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ app() }}.T_D_PERIOD;
+    SELECT COUNT(*) INTO :n FROM T_D_PERIOD;
     IF (n = 0) THEN
-        INSERT INTO {{ app() }}.T_D_PERIOD (
+        INSERT INTO T_D_PERIOD (
             PERIOD_KEY, PERIOD_START_DATE, PERIOD_END_DATE, YEAR, MONTH_NUMBER, MONTH_NAME,
             PERIOD_LABEL, QUARTER, HALF_YEAR, IS_SENIORITY_MONTH, FISCAL_YEAR, WEEKDAY_COUNT)
         WITH months AS (

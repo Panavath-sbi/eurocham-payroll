@@ -13,7 +13,7 @@ CREATE DATABASE IF NOT EXISTS {{ database }}
 -------------------------------------------------------------------------------
 -- 2. SCHEMAS
 -------------------------------------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS {{ database }}.MART
-    COMMENT = 'SBI Payroll - development (dbt target dev)';
-CREATE SCHEMA IF NOT EXISTS {{ database }}.UAT
-    COMMENT = 'SBI Payroll - user acceptance testing (dbt target uat)';
+CREATE SCHEMA IF NOT EXISTS {{ database }}.{{ schema_app }}
+    COMMENT = 'EuroCham Payroll - UAT tables and procedures (dbt target uat)';
+CREATE SCHEMA IF NOT EXISTS {{ database }}.{{ schema_rpt }}
+    COMMENT = 'EuroCham Payroll - UAT views (dbt target uat)';

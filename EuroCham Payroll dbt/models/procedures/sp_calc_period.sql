@@ -52,7 +52,7 @@
    No transaction and no role check: only called by the procedures below, inside
    their own transaction. Raises an error instead of returning one.
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ app() }}.SP_CALC_PERIOD(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT)
+CREATE OR REPLACE PROCEDURE SP_CALC_PERIOD(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -71,30 +71,30 @@ DECLARE
     e_params     EXCEPTION (-20003, 'Calculation refused: statutory parameters or tax brackets are missing for the period.');
 BEGIN
     SELECT MAX(PERIOD_STATUS) INTO :v_status
-    FROM {{ app() }}.T_F_SCENARIO_PERIOD
+    FROM T_F_SCENARIO_PERIOD
     WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY;
 
     IF (v_status IS NULL) THEN RAISE e_missing; END IF;
     IF (v_status = 'FINALIZED' OR v_status = 'LOCKED') THEN RAISE e_locked; END IF;
 
     SELECT COUNT(DISTINCT PARAM_CODE) INTO :v_params
-    FROM {{ app() }}.T_P_STATUTORY_PARAMETER
+    FROM T_P_STATUTORY_PARAMETER
     WHERE :P_PERIOD_KEY BETWEEN VALID_FROM_PERIOD_KEY AND COALESCE(VALID_TO_PERIOD_KEY, 999912)
       AND PARAM_CODE IN ('NSSF_EE_PENSION_RATE', 'NSSF_ER_PENSION_RATE', 'NSSF_HEALTH_RATE', 'NSSF_ORC_RATE',
                          'NSSF_BASE_FLOOR_KHR', 'NSSF_BASE_CAP_KHR', 'DEPENDANT_ALLOWANCE_KHR',
                          'TAX_NON_RESIDENT_RATE', 'SENIORITY_TAX_EXEMPT_KHR', 'SENIORITY_DAYS_PER_PAYMENT',
                          'OVERTIME_MULTIPLIER');
     SELECT COUNT(*) INTO :v_brackets
-    FROM {{ app() }}.T_P_TAX_BRACKET
+    FROM T_P_TAX_BRACKET
     WHERE :P_PERIOD_KEY BETWEEN VALID_FROM_PERIOD_KEY AND COALESCE(VALID_TO_PERIOD_KEY, 999912);
     IF (v_params < 11 OR v_brackets = 0) THEN RAISE e_params; END IF;
 
     v_calc_id := 'CALC-' || P_SCENARIO_ID || '-' || P_PERIOD_KEY || '-' || UUID_STRING();
 
-    DELETE FROM {{ app() }}.T_F_PAYROLL_LINE
+    DELETE FROM T_F_PAYROLL_LINE
     WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY;
 
-    INSERT INTO {{ app() }}.T_F_PAYROLL_LINE
+    INSERT INTO T_F_PAYROLL_LINE
         (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, PAY_COMPONENT_CODE, EMPLOYEE_VERSION_KEY, ENTITY_CODE,
          QUANTITY, RATE, AMOUNT_USD, AMOUNT_KHR, FX_RATE_APPLIED, CALCULATION_ID, INSERT_BY, UPDATE_BY)
     WITH
@@ -102,9 +102,9 @@ BEGIN
         SELECT s.SCENARIO_ID, s.SCENARIO_TYPE, s.FORECAST_AS_OF_PERIOD_KEY,
                x.PERIOD_KEY, x.WORKING_DAYS, x.FX_RATE_NBC, x.FX_RATE_NSSF,
                p.YEAR, p.HALF_YEAR, p.IS_SENIORITY_MONTH
-        FROM {{ app() }}.T_F_SCENARIO_PERIOD x
-        JOIN {{ app() }}.T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID
-        JOIN {{ app() }}.T_D_PERIOD p  ON p.PERIOD_KEY = x.PERIOD_KEY
+        FROM T_F_SCENARIO_PERIOD x
+        JOIN T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID
+        JOIN T_D_PERIOD p  ON p.PERIOD_KEY = x.PERIOD_KEY
         WHERE x.SCENARIO_ID = :P_SCENARIO_ID AND x.PERIOD_KEY = :P_PERIOD_KEY
     ),
     prm AS (     -- statutory parameters valid for the period, as one row
@@ -120,7 +120,7 @@ BEGIN
             MAX(IFF(PARAM_CODE = 'SENIORITY_TAX_EXEMPT_KHR',   PARAM_VALUE, NULL)) AS SEN_EXEMPT,
             MAX(IFF(PARAM_CODE = 'SENIORITY_DAYS_PER_PAYMENT', PARAM_VALUE, NULL)) AS SEN_DAYS,
             MAX(IFF(PARAM_CODE = 'OVERTIME_MULTIPLIER',        PARAM_VALUE, NULL)) AS OT_MULT
-        FROM {{ app() }}.T_P_STATUTORY_PARAMETER
+        FROM T_P_STATUTORY_PARAMETER
         WHERE :P_PERIOD_KEY BETWEEN VALID_FROM_PERIOD_KEY AND COALESCE(VALID_TO_PERIOD_KEY, 999912)
     ),
     terms AS (   -- employee terms: contracts for ACTUAL, scenario employees otherwise
@@ -128,7 +128,7 @@ BEGIN
                c.MONTHLY_SALARY_USD AS SALARY, c.TAX_STATUS,
                c.DEPENDANT_CHILDREN + c.DEPENDANT_SPOUSE AS DEPENDANTS,
                c.INSURANCE_USD, c.VISA_USD, c.WORK_PERMIT_USD, c.FRINGE_BENEFIT_USD
-        FROM {{ app() }}.T_D_EMPLOYEE_CONTRACT c
+        FROM T_D_EMPLOYEE_CONTRACT c
         JOIN sp ON sp.SCENARIO_TYPE = 'ACTUAL'
                AND sp.PERIOD_KEY BETWEEN c.VALID_FROM_PERIOD_KEY AND COALESCE(c.VALID_TO_PERIOD_KEY, 999912)
         UNION ALL
@@ -137,14 +137,14 @@ BEGIN
                    se.FINAL_SALARY_USD, se.MONTHLY_SALARY_USD),
                se.TAX_STATUS, se.DEPENDANT_CHILDREN + se.DEPENDANT_SPOUSE,
                se.INSURANCE_USD, se.VISA_USD, se.WORK_PERMIT_USD, se.FRINGE_BENEFIT_USD
-        FROM {{ app() }}.T_D_SCENARIO_EMPLOYEE se
+        FROM T_D_SCENARIO_EMPLOYEE se
         JOIN sp ON sp.SCENARIO_ID = se.SCENARIO_ID AND sp.SCENARIO_TYPE <> 'ACTUAL'
     ),
     inp AS (     -- who is paid this period, and their monthly inputs
         -- ACTUAL: exactly the input rows created when the period was opened
         SELECT i.EMPLOYEE_ID, i.ABSENCE_DAYS, i.OVERTIME_DAYS, i.OUTSTANDING_DAYS, i.BONUS_USD,
                i.SALARY_OVERRIDE_USD, i.FRINGE_BENEFIT_OVERRIDE_USD
-        FROM {{ app() }}.T_F_PAYROLL_INPUT i
+        FROM T_F_PAYROLL_INPUT i
         JOIN sp ON sp.SCENARIO_TYPE = 'ACTUAL' AND i.SCENARIO_ID = sp.SCENARIO_ID AND i.PERIOD_KEY = sp.PERIOD_KEY
         WHERE i.INCLUDE_IN_PAYROLL
         UNION ALL
@@ -152,17 +152,17 @@ BEGIN
         SELECT se.EMPLOYEE_ID, COALESCE(i.ABSENCE_DAYS, 0), COALESCE(i.OVERTIME_DAYS, 0),
                COALESCE(i.OUTSTANDING_DAYS, 0), COALESCE(i.BONUS_USD, 0),
                i.SALARY_OVERRIDE_USD, i.FRINGE_BENEFIT_OVERRIDE_USD
-        FROM {{ app() }}.T_D_SCENARIO_EMPLOYEE se
+        FROM T_D_SCENARIO_EMPLOYEE se
         JOIN sp ON sp.SCENARIO_ID = se.SCENARIO_ID AND sp.SCENARIO_TYPE <> 'ACTUAL'
-        LEFT JOIN {{ app() }}.T_F_PAYROLL_INPUT i
+        LEFT JOIN T_F_PAYROLL_INPUT i
                ON i.SCENARIO_ID = se.SCENARIO_ID AND i.PERIOD_KEY = sp.PERIOD_KEY AND i.EMPLOYEE_ID = se.EMPLOYEE_ID
         WHERE COALESCE(i.INCLUDE_IN_PAYROLL, TRUE)
     ),
     sen_hist AS (   -- salary + bonus of earlier months in the same half-year (seniority months only)
         SELECT l.EMPLOYEE_ID, SUM(l.AMOUNT_USD) AS PRIOR_USD, COUNT(DISTINCT l.PERIOD_KEY) AS PRIOR_MONTHS
-        FROM {{ app() }}.T_F_PAYROLL_LINE l
-        JOIN {{ app() }}.T_D_PERIOD p   ON p.PERIOD_KEY = l.PERIOD_KEY
-        JOIN {{ app() }}.T_D_SCENARIO ls ON ls.SCENARIO_ID = l.SCENARIO_ID
+        FROM T_F_PAYROLL_LINE l
+        JOIN T_D_PERIOD p   ON p.PERIOD_KEY = l.PERIOD_KEY
+        JOIN T_D_SCENARIO ls ON ls.SCENARIO_ID = l.SCENARIO_ID
         JOIN sp                  ON p.YEAR = sp.YEAR AND p.HALF_YEAR = sp.HALF_YEAR
         WHERE sp.IS_SENIORITY_MONTH
           AND l.PERIOD_KEY < sp.PERIOD_KEY
@@ -228,7 +228,7 @@ BEGIN
                    GREATEST(ROUND(c.TAX_BASE_KHR * COALESCE(b.TAX_RATE, 0) - COALESCE(b.CUMULATIVE_DEDUCTION_KHR, 0)), 0),
                    GREATEST(ROUND(c.TAX_BASE_KHR * c.NONRES_RATE), 0))                AS TAX_KHR
         FROM calc c
-        LEFT JOIN {{ app() }}.T_P_TAX_BRACKET b
+        LEFT JOIN T_P_TAX_BRACKET b
                ON c.TAX_STATUS = 'RESIDENT'
               AND :P_PERIOD_KEY BETWEEN b.VALID_FROM_PERIOD_KEY AND COALESCE(b.VALID_TO_PERIOD_KEY, 999912)
               AND c.TAX_BASE_KHR > b.LOWER_BOUND_KHR

@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_d_scenario') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.5.0 in APP).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_APPROVAL (
+CREATE TABLE IF NOT EXISTS T_F_APPROVAL (
     SCENARIO_ID   INT       NOT NULL COMMENT 'Scenario being approved (the actual payroll, or a budget)',
     PERIOD_KEY    INT       NOT NULL COMMENT 'Payroll month being approved (YYYYMM); 0 = a whole budget scenario',
     STEP_ORDER    INT       NOT NULL COMMENT 'Approval step, 1 = first',
@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_APPROVAL (
     INSERT_BY     TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
     UPDATE_BY     TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_F_APPROVAL PRIMARY KEY (SCENARIO_ID, PERIOD_KEY, STEP_ORDER),
-    CONSTRAINT FK_APPROVAL_SCENARIO FOREIGN KEY (SCENARIO_ID) REFERENCES {{ app() }}.T_D_SCENARIO (SCENARIO_ID)
+    CONSTRAINT FK_APPROVAL_SCENARIO FOREIGN KEY (SCENARIO_ID) REFERENCES T_D_SCENARIO (SCENARIO_ID)
 ) COMMENT = 'Current state of each approval step: one row per step for each payroll month (created when the month is opened) and for each submitted budget (period 0, created on submission). Every change is also written to T_F_CHANGE_LOG.';

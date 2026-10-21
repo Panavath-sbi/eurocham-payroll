@@ -1,6 +1,6 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_CHANGE_LOG (
+CREATE TABLE IF NOT EXISTS T_F_CHANGE_LOG (
     CHANGE_ID    INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key',
     TABLE_NAME   TEXT      NOT NULL COMMENT 'Table that changed, e.g. APP.T_D_EMPLOYEE_CONTRACT',
     RECORD_KEY   VARIANT   NOT NULL COMMENT 'Primary key of the changed row as JSON',

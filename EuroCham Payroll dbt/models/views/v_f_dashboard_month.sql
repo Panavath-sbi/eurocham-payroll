@@ -25,7 +25,7 @@
    Every month exists (zeros when nothing was paid), so a 12-month chart always has 12
    points. Chamber = the entity of the employee's contract that month.
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ rpt() }}.V_F_DASHBOARD_MONTH (
+CREATE OR REPLACE VIEW V_F_DASHBOARD_MONTH (
     PERIOD_KEY, YEAR, MONTH_NUMBER, PERIOD_LABEL,
     SHORT_LABEL        COMMENT 'Chart label, e.g. Oct''26',
     HEADCOUNT          COMMENT 'Employees paid in the actual payroll that month',
@@ -66,19 +66,19 @@ WITH act AS (
            SUM(s.SALARY_TAX_KHR)                                                AS TOS_K,
            SUM(IFF(s.ENTITY_CODE = 'ECCC',  s.SALARY_TAX_KHR, 0))               AS TOS_E,
            SUM(IFF(s.ENTITY_CODE = 'CCIFC', s.SALARY_TAX_KHR, 0))               AS TOS_C
-    FROM {{ rpt() }}.V_F_PAYROLL_SUMMARY s
-    JOIN {{ app() }}.T_D_SCENARIO sc ON sc.SCENARIO_ID = s.SCENARIO_ID AND sc.SCENARIO_TYPE = 'ACTUAL'
+    FROM V_F_PAYROLL_SUMMARY s
+    JOIN T_D_SCENARIO sc ON sc.SCENARIO_ID = s.SCENARIO_ID AND sc.SCENARIO_TYPE = 'ACTUAL'
     GROUP BY s.PERIOD_KEY
 ),
 plan AS (
     SELECT PERIOD_KEY,
            SUM(BUDGET_GROSS_PAY_USD)   AS BUD,
            SUM(FORECAST_GROSS_PAY_USD) AS FCST
-    FROM {{ rpt() }}.V_F_BUDGET_VS_ACTUAL
+    FROM V_F_BUDGET_VS_ACTUAL
     GROUP BY PERIOD_KEY
 ),
 actual_scenario AS (
-    SELECT MIN(SCENARIO_ID) AS SCENARIO_ID FROM {{ app() }}.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL'
+    SELECT MIN(SCENARIO_ID) AS SCENARIO_ID FROM T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL'
 )
 SELECT
     p.PERIOD_KEY,
@@ -95,8 +95,8 @@ SELECT
     ROUND(COALESCE(a.TOS_E, 0), 0), ROUND(COALESCE(a.TOS_C, 0), 0),
     COALESCE(sp.FX_RATE_NBC, p.FX_RATE_NBC),
     ROUND(COALESCE(pl.BUD, 0), 2), ROUND(COALESCE(pl.FCST, 0), 2)
-FROM {{ app() }}.T_D_PERIOD p
+FROM T_D_PERIOD p
 CROSS JOIN actual_scenario x
 LEFT JOIN act a   ON a.PERIOD_KEY = p.PERIOD_KEY
 LEFT JOIN plan pl ON pl.PERIOD_KEY = p.PERIOD_KEY
-LEFT JOIN {{ app() }}.T_F_SCENARIO_PERIOD sp ON sp.SCENARIO_ID = x.SCENARIO_ID AND sp.PERIOD_KEY = p.PERIOD_KEY;
+LEFT JOIN T_F_SCENARIO_PERIOD sp ON sp.SCENARIO_ID = x.SCENARIO_ID AND sp.PERIOD_KEY = p.PERIOD_KEY;

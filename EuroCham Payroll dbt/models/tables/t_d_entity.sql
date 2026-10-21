@@ -1,7 +1,7 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stood after V1.0.1 - V1.8.0 (created in
 --             CORE by V1.0.1, moved to APP by V1.5.0, unchanged otherwise).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_ENTITY (
+CREATE TABLE IF NOT EXISTS T_D_ENTITY (
     ENTITY_CODE   TEXT      NOT NULL COMMENT 'Entity (chamber) code, e.g. ECCC, CCIFC',
     ENTITY_NAME   TEXT      NOT NULL COMMENT 'Full entity name',
     IS_ACTIVE     BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Whether the entity can be assigned to new contracts',
@@ -19,9 +19,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ app() }}.T_D_ENTITY;
+    SELECT COUNT(*) INTO :n FROM T_D_ENTITY;
     IF (n = 0) THEN
-        INSERT INTO {{ app() }}.T_D_ENTITY (ENTITY_CODE, ENTITY_NAME) VALUES
+        INSERT INTO T_D_ENTITY (ENTITY_CODE, ENTITY_NAME) VALUES
             ('ECCC',  'EuroCham Cambodia'),
             ('CCIFC', 'CCIFC');
     END IF;

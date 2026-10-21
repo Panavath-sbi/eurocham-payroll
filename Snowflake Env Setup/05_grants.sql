@@ -17,8 +17,8 @@ GRANT DATABASE ROLE {{ database }}.DB_ADMIN  TO ROLE "{{ role_dba }}";
 
 -- 1b. Ownership: schemas -> DBA (the database stays with SYSADMIN).
 --     Must run before section 2, where DBA grants as schema owner.
-GRANT OWNERSHIP ON SCHEMA {{ database }}.MART TO ROLE "{{ role_dba }}" COPY CURRENT GRANTS;
-GRANT OWNERSHIP ON SCHEMA {{ database }}.UAT  TO ROLE "{{ role_dba }}" COPY CURRENT GRANTS;
+GRANT OWNERSHIP ON SCHEMA {{ database }}.{{ schema_app }} TO ROLE "{{ role_dba }}" COPY CURRENT GRANTS;
+GRANT OWNERSHIP ON SCHEMA {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_dba }}" COPY CURRENT GRANTS;
 
 -- 1c. DB_READER
 GRANT USAGE  ON ALL SCHEMAS    IN DATABASE {{ database }} TO DATABASE ROLE {{ database }}.DB_READER;
@@ -28,9 +28,9 @@ GRANT SELECT ON FUTURE TABLES  IN DATABASE {{ database }} TO DATABASE ROLE {{ da
 GRANT SELECT ON ALL VIEWS      IN DATABASE {{ database }} TO DATABASE ROLE {{ database }}.DB_READER;
 GRANT SELECT ON FUTURE VIEWS   IN DATABASE {{ database }} TO DATABASE ROLE {{ database }}.DB_READER;
 -- Schema-level FUTURE grants override database-level ones for the same object type.
--- MART/UAT have schema-level FUTURE VIEWS (section 2), so DB_READER must be repeated here.
-GRANT SELECT ON FUTURE VIEWS   IN SCHEMA {{ database }}.MART TO DATABASE ROLE {{ database }}.DB_READER;
-GRANT SELECT ON FUTURE VIEWS   IN SCHEMA {{ database }}.UAT  TO DATABASE ROLE {{ database }}.DB_READER;
+-- {{ schema_app }}/{{ schema_rpt }} have schema-level FUTURE VIEWS (section 2), so DB_READER must be repeated here.
+GRANT SELECT ON FUTURE VIEWS   IN SCHEMA {{ database }}.{{ schema_app }} TO DATABASE ROLE {{ database }}.DB_READER;
+GRANT SELECT ON FUTURE VIEWS   IN SCHEMA {{ database }}.{{ schema_rpt }} TO DATABASE ROLE {{ database }}.DB_READER;
 
 -- 1d. DB_WRITER
 GRANT INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES    IN DATABASE {{ database }} TO DATABASE ROLE {{ database }}.DB_WRITER;
@@ -65,14 +65,14 @@ GRANT ROLE "{{ role_app }}" TO USER {{ service_user }};
    ----------------------------------------------------------------- */
 USE ROLE "{{ role_dba }}";
 
-GRANT USAGE  ON SCHEMA                   {{ database }}.MART TO ROLE "{{ role_app }}";
-GRANT SELECT ON ALL VIEWS         IN SCHEMA {{ database }}.MART TO ROLE "{{ role_app }}";
-GRANT SELECT ON FUTURE VIEWS      IN SCHEMA {{ database }}.MART TO ROLE "{{ role_app }}";
-GRANT USAGE  ON ALL PROCEDURES    IN SCHEMA {{ database }}.MART TO ROLE "{{ role_app }}";
-GRANT USAGE  ON FUTURE PROCEDURES IN SCHEMA {{ database }}.MART TO ROLE "{{ role_app }}";
+GRANT USAGE  ON SCHEMA                   {{ database }}.{{ schema_app }} TO ROLE "{{ role_app }}";
+GRANT SELECT ON ALL VIEWS         IN SCHEMA {{ database }}.{{ schema_app }} TO ROLE "{{ role_app }}";
+GRANT SELECT ON FUTURE VIEWS      IN SCHEMA {{ database }}.{{ schema_app }} TO ROLE "{{ role_app }}";
+GRANT USAGE  ON ALL PROCEDURES    IN SCHEMA {{ database }}.{{ schema_app }} TO ROLE "{{ role_app }}";
+GRANT USAGE  ON FUTURE PROCEDURES IN SCHEMA {{ database }}.{{ schema_app }} TO ROLE "{{ role_app }}";
 
-GRANT USAGE  ON SCHEMA                   {{ database }}.UAT TO ROLE "{{ role_app }}";
-GRANT SELECT ON ALL VIEWS         IN SCHEMA {{ database }}.UAT TO ROLE "{{ role_app }}";
-GRANT SELECT ON FUTURE VIEWS      IN SCHEMA {{ database }}.UAT TO ROLE "{{ role_app }}";
-GRANT USAGE  ON ALL PROCEDURES    IN SCHEMA {{ database }}.UAT TO ROLE "{{ role_app }}";
-GRANT USAGE  ON FUTURE PROCEDURES IN SCHEMA {{ database }}.UAT TO ROLE "{{ role_app }}";
+GRANT USAGE  ON SCHEMA                   {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_app }}";
+GRANT SELECT ON ALL VIEWS         IN SCHEMA {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_app }}";
+GRANT SELECT ON FUTURE VIEWS      IN SCHEMA {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_app }}";
+GRANT USAGE  ON ALL PROCEDURES    IN SCHEMA {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_app }}";
+GRANT USAGE  ON FUTURE PROCEDURES IN SCHEMA {{ database }}.{{ schema_rpt }} TO ROLE "{{ role_app }}";

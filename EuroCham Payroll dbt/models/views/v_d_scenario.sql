@@ -9,7 +9,7 @@
    2026-10-19  Own file for DLSync (was in R__views_core.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ rpt() }}.V_D_SCENARIO
+CREATE OR REPLACE VIEW V_D_SCENARIO
 COPY GRANTS
 COMMENT = 'Scenario dimension for reporting: actual payroll, budget scenarios and forecast versions.'
 AS
@@ -23,4 +23,4 @@ SELECT
     BASE_SCENARIO_ID,
     FORECAST_AS_OF_PERIOD_KEY,
     DESCRIPTION
-FROM {{ app() }}.T_D_SCENARIO;
+FROM T_D_SCENARIO;

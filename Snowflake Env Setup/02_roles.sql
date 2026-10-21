@@ -7,7 +7,7 @@
    Model (what Snowsight shows under Access):
      {{ database }}   owner SYSADMIN
        DB_READER < DB_WRITER < DB_ADMIN    database roles, database-wide (ALL + FUTURE)
-     MART, UAT        owner {{ role_dba }} (schema owner creates tables/views/procs, so no CREATE TABLE/VIEW grants)
+     {{ schema_app }}, {{ schema_rpt }}  owner {{ role_dba }} (schema owner creates tables/views/procs, so no CREATE TABLE/VIEW grants)
 
      {{ role_dba }}   = DB_ADMIN + owns the schemas -> dbt deploy role, owns everything dbt builds
      {{ role_app }}   = app role (Power Automate)   -> USAGE on schema, SELECT on views, USAGE on procedures

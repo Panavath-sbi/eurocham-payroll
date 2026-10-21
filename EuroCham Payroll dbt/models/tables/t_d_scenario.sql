@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_d_period') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_SCENARIO (
+CREATE TABLE IF NOT EXISTS T_D_SCENARIO (
     SCENARIO_ID                INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key',
     SCENARIO_TYPE              TEXT      NOT NULL COMMENT 'ACTUAL (exactly one row), BUDGET or FORECAST',
     SCENARIO_NAME              TEXT      NOT NULL COMMENT 'Display name, e.g. Budget 2027 Base',
@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_SCENARIO (
     INSERT_BY                  TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
     UPDATE_BY                  TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_D_SCENARIO PRIMARY KEY (SCENARIO_ID),
-    CONSTRAINT FK_SCENARIO_BASE FOREIGN KEY (BASE_SCENARIO_ID) REFERENCES {{ app() }}.T_D_SCENARIO (SCENARIO_ID),
-    CONSTRAINT FK_SCENARIO_ASOF FOREIGN KEY (FORECAST_AS_OF_PERIOD_KEY) REFERENCES {{ app() }}.T_D_PERIOD (PERIOD_KEY)
+    CONSTRAINT FK_SCENARIO_BASE FOREIGN KEY (BASE_SCENARIO_ID) REFERENCES T_D_SCENARIO (SCENARIO_ID),
+    CONSTRAINT FK_SCENARIO_ASOF FOREIGN KEY (FORECAST_AS_OF_PERIOD_KEY) REFERENCES T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Scenario dimension: actual payroll, budget scenarios and forecast versions.';

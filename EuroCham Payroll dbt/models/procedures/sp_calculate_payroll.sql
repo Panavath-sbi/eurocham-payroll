@@ -34,7 +34,7 @@
    Finalized and locked periods are skipped.
    Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ app() }}.SP_CALCULATE_PAYROLL(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT)
+CREATE OR REPLACE PROCEDURE SP_CALCULATE_PAYROLL(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -48,13 +48,13 @@ DECLARE
     v_pk      INT;
     v_done    INT DEFAULT 0;
 BEGIN
-    SELECT MAX(SCENARIO_TYPE) INTO :v_type FROM {{ app() }}.T_D_SCENARIO WHERE SCENARIO_ID = :P_SCENARIO_ID;
+    SELECT MAX(SCENARIO_TYPE) INTO :v_type FROM T_D_SCENARIO WHERE SCENARIO_ID = :P_SCENARIO_ID;
     IF (v_type IS NULL) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Scenario ' || P_SCENARIO_ID || ' does not exist.');
     END IF;
 
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ app() }}.T_D_APP_USER u
+    FROM T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
@@ -64,7 +64,7 @@ BEGIN
 
     LET rs RESULTSET := (
         SELECT PERIOD_KEY
-        FROM {{ app() }}.T_F_SCENARIO_PERIOD
+        FROM T_F_SCENARIO_PERIOD
         WHERE SCENARIO_ID = :P_SCENARIO_ID
           AND (:P_PERIOD_KEY IS NULL OR PERIOD_KEY = :P_PERIOD_KEY)
           AND PERIOD_STATUS NOT IN ('FINALIZED', 'LOCKED')
@@ -72,7 +72,7 @@ BEGIN
     LET cur CURSOR FOR rs;
     FOR rec IN cur DO
         v_pk := rec.PERIOD_KEY;
-        CALL {{ app() }}.SP_CALC_PERIOD(:P_USER_EMAIL, :P_SCENARIO_ID, :v_pk);
+        CALL SP_CALC_PERIOD(:P_USER_EMAIL, :P_SCENARIO_ID, :v_pk);
         v_done := v_done + 1;
     END FOR;
 
