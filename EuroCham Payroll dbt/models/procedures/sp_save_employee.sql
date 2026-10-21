@@ -41,7 +41,7 @@
      SP_SAVE_EMPLOYEE_CONTRACT; activity through SP_SET_EMPLOYEE_ACTIVE.
    Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE SP_SAVE_EMPLOYEE(P_USER_EMAIL TEXT, P_EMPLOYEE TEXT)
+CREATE OR REPLACE PROCEDURE {{ app() }}.SP_SAVE_EMPLOYEE(P_USER_EMAIL TEXT, P_EMPLOYEE TEXT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -67,7 +67,7 @@ DECLARE
     v_new        TEXT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM T_D_APP_USER u
+    FROM {{ app() }}.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
@@ -77,7 +77,7 @@ BEGIN
     FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D);
 
     IF (v_code IS NOT NULL) THEN
-        SELECT COUNT(*) INTO :v_dupe FROM T_D_EMPLOYEE
+        SELECT COUNT(*) INTO :v_dupe FROM {{ app() }}.T_D_EMPLOYEE
         WHERE UPPER(RESOURCE_CODE) = UPPER(:v_code) AND EMPLOYEE_ID <> COALESCE(:v_emp, -1);
         IF (v_dupe > 0) THEN
             RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Resource ID ' || v_code || ' is already used by another employee.');
@@ -87,8 +87,8 @@ BEGIN
     SELECT MAX(s.SCENARIO_ID), MAX(IFF(x.PERIOD_STATUS IN ('OPEN', 'IN_APPROVAL'), x.PERIOD_KEY, NULL)),
            MAX(IFF(x.PERIOD_STATUS = 'FINALIZED', x.PERIOD_KEY, NULL))
       INTO :v_actual, :v_open, :v_last_final
-    FROM T_D_SCENARIO s
-    LEFT JOIN T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID
+    FROM {{ app() }}.T_D_SCENARIO s
+    LEFT JOIN {{ app() }}.T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID
     WHERE s.SCENARIO_TYPE = 'ACTUAL';
 
     IF (v_emp IS NULL) THEN
@@ -104,7 +104,7 @@ BEGIN
         FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D);
 
         SELECT COUNT(*) INTO :v_entity_ok
-        FROM T_D_ENTITY
+        FROM {{ app() }}.T_D_ENTITY
         WHERE ENTITY_CODE = :v_entity AND IS_ACTIVE;
 
         IF (v_missing = 1) THEN
@@ -119,7 +119,7 @@ BEGIN
 
         BEGIN TRANSACTION;
 
-        INSERT INTO T_D_EMPLOYEE
+        INSERT INTO {{ app() }}.T_D_EMPLOYEE
             (RESOURCE_CODE, FIRST_NAME, LAST_NAME, EMAIL, PHONE, NATIONALITY, EMPLOYMENT_START_DATE, EMPLOYMENT_END_DATE,
              IS_ACTIVE, BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NUMBER, IS_PLANNED, INSERT_BY, UPDATE_BY)
         SELECT :v_code, D:first_name::TEXT, D:last_name::TEXT, D:email::TEXT, D:phone::TEXT, D:nationality::TEXT,
@@ -128,9 +128,9 @@ BEGIN
                :P_USER_EMAIL, :P_USER_EMAIL
         FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D);
 
-        SELECT MAX(EMPLOYEE_ID) INTO :v_emp FROM T_D_EMPLOYEE WHERE RESOURCE_CODE = :v_code;
+        SELECT MAX(EMPLOYEE_ID) INTO :v_emp FROM {{ app() }}.T_D_EMPLOYEE WHERE RESOURCE_CODE = :v_code;
 
-        INSERT INTO T_D_EMPLOYEE_CONTRACT
+        INSERT INTO {{ app() }}.T_D_EMPLOYEE_CONTRACT
             (EMPLOYEE_ID, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY, POSITION, EMPLOYMENT_TYPE, CONTRACT_TYPE, ENTITY_CODE,
              MONTHLY_SALARY_USD, TAX_STATUS, DEPENDANT_CHILDREN, DEPENDANT_SPOUSE, INSURANCE_USD, VISA_USD,
              WORK_PERMIT_USD, FRINGE_BENEFIT_USD, CHANGE_REASON, NON_RESIDENT_FROM, NON_RESIDENT_TO, INSERT_BY, UPDATE_BY)
@@ -144,16 +144,16 @@ BEGIN
                :P_USER_EMAIL, :P_USER_EMAIL
         FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D);
 
-        SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_new FROM T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
-        INSERT INTO T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+        SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_new FROM {{ app() }}.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
+        INSERT INTO {{ app() }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_D_EMPLOYEE', OBJECT_CONSTRUCT('EMPLOYEE_ID', :v_emp), 'INSERT', NULL, PARSE_JSON(:v_new), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
         -- Join the open month if the contract already applies to it
         IF (v_open IS NOT NULL AND v_from <= v_open) THEN
-            INSERT INTO T_F_PAYROLL_INPUT (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, INSERT_BY, UPDATE_BY)
+            INSERT INTO {{ app() }}.T_F_PAYROLL_INPUT (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, INSERT_BY, UPDATE_BY)
             SELECT :v_actual, :v_open, :v_emp, :P_USER_EMAIL, :P_USER_EMAIL;
-            CALL SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :v_open, NULL, 'New employee added');
-            CALL SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :v_open);
+            CALL {{ app() }}.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :v_open, NULL, 'New employee added');
+            CALL {{ app() }}.SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :v_open);
         END IF;
 
         COMMIT;
@@ -161,7 +161,7 @@ BEGIN
     END IF;
 
     -- ---------------- UPDATE ----------------
-    SELECT COUNT(*), MAX(IS_PLANNED) INTO :v_exists, :v_planned FROM T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
+    SELECT COUNT(*), MAX(IS_PLANNED) INTO :v_exists, :v_planned FROM {{ app() }}.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
     IF (v_exists = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Employee ' || v_emp || ' does not exist.');
     END IF;
@@ -171,9 +171,9 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_old FROM T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
+    SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_old FROM {{ app() }}.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
 
-    UPDATE T_D_EMPLOYEE e
+    UPDATE {{ app() }}.T_D_EMPLOYEE e
     SET RESOURCE_CODE         = COALESCE(:v_code, e.RESOURCE_CODE),
         FIRST_NAME            = COALESCE(x.D:first_name::TEXT, e.FIRST_NAME),
         LAST_NAME             = COALESCE(x.D:last_name::TEXT, e.LAST_NAME),
@@ -191,8 +191,8 @@ BEGIN
     FROM (SELECT PARSE_JSON(:P_EMPLOYEE) AS D) x
     WHERE e.EMPLOYEE_ID = :v_emp;
 
-    SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_new FROM T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
-    INSERT INTO T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) INTO :v_new FROM {{ app() }}.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :v_emp;
+    INSERT INTO {{ app() }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_D_EMPLOYEE', OBJECT_CONSTRUCT('EMPLOYEE_ID', :v_emp), 'UPDATE', PARSE_JSON(:v_old), PARSE_JSON(:v_new), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     COMMIT;

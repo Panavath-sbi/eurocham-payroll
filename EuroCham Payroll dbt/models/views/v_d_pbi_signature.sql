@@ -25,7 +25,7 @@
    One row per app user with a signature. Same column names as the former RPT.SIGNATURES
    table, so the Power BI query only needs its source changed to this view.
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW V_D_PBI_SIGNATURE (
+CREATE OR REPLACE VIEW {{ rpt() }}.V_D_PBI_SIGNATURE (
     APPROVER_EMAIL COMMENT 'Email of the approver (app user)',
     IMAGE_BASE64   COMMENT 'E-signature image in Base64'
 )
@@ -33,5 +33,5 @@ COPY GRANTS
 COMMENT = 'Power BI: approver e-signatures (from APP.T_D_APP_USER.SIGNATURE_IMAGE)'
 AS
 SELECT USER_EMAIL, SIGNATURE_IMAGE
-FROM T_D_APP_USER
+FROM {{ app() }}.T_D_APP_USER
 WHERE SIGNATURE_IMAGE IS NOT NULL;

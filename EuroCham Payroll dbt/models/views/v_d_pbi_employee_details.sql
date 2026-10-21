@@ -24,7 +24,7 @@
    Bank fields are sensitive: apply the masking policy (optional/mask_bank_details.sql)
    and give Power BI a role that only sees what the report needs.
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW V_D_PBI_EMPLOYEE_DETAILS (
+CREATE OR REPLACE VIEW {{ rpt() }}.V_D_PBI_EMPLOYEE_DETAILS (
     "Title"                    COMMENT 'Resource ID, e.g. HR-FRA-001 (join key to Fct_Payroll.Employee_ID)',
     "Start_Date"               COMMENT 'Employment start date',
     "End_Date"                 COMMENT 'Employment end date; NULL while employed',
@@ -41,7 +41,7 @@ COMMENT = 'Power BI: Employee_Details (replaces the SharePoint list)'
 AS
 WITH current_contract AS (
     SELECT c.*
-    FROM T_D_EMPLOYEE_CONTRACT c
+    FROM {{ app() }}.T_D_EMPLOYEE_CONTRACT c
     WHERE c.VALID_FROM_PERIOD_KEY <= TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM'))
     QUALIFY ROW_NUMBER() OVER (PARTITION BY c.EMPLOYEE_ID ORDER BY c.VALID_FROM_PERIOD_KEY DESC) = 1
 ),
@@ -49,9 +49,9 @@ non_residency AS (
     SELECT c.EMPLOYEE_ID,
            MIN(pf.PERIOD_START_DATE)                                        AS NR_START,
            IFF(COUNT_IF(c.VALID_TO_PERIOD_KEY IS NULL) > 0, NULL, MAX(pt.PERIOD_END_DATE)) AS NR_END
-    FROM T_D_EMPLOYEE_CONTRACT c
-    JOIN T_D_PERIOD pf      ON pf.PERIOD_KEY = c.VALID_FROM_PERIOD_KEY
-    LEFT JOIN T_D_PERIOD pt ON pt.PERIOD_KEY = c.VALID_TO_PERIOD_KEY
+    FROM {{ app() }}.T_D_EMPLOYEE_CONTRACT c
+    JOIN {{ app() }}.T_D_PERIOD pf      ON pf.PERIOD_KEY = c.VALID_FROM_PERIOD_KEY
+    LEFT JOIN {{ app() }}.T_D_PERIOD pt ON pt.PERIOD_KEY = c.VALID_TO_PERIOD_KEY
     WHERE c.TAX_STATUS = 'NON_RESIDENT'
     GROUP BY c.EMPLOYEE_ID
 )
@@ -66,7 +66,7 @@ SELECT
     e.BANK_ACCOUNT_NAME                                    AS "Bank_Account_Name",
     e.BANK_ACCOUNT_NUMBER                                  AS "Bank_Account_Number",
     cc.POSITION                                            AS "Position"
-FROM T_D_EMPLOYEE e
+FROM {{ app() }}.T_D_EMPLOYEE e
 LEFT JOIN current_contract cc ON cc.EMPLOYEE_ID = e.EMPLOYEE_ID
 LEFT JOIN non_residency nr    ON nr.EMPLOYEE_ID = e.EMPLOYEE_ID
 WHERE NOT e.IS_PLANNED;

@@ -9,7 +9,7 @@
    2026-10-19  Own file for DLSync (was in R__views_core.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW V_F_PAYROLL_SUMMARY
+CREATE OR REPLACE VIEW {{ rpt() }}.V_F_PAYROLL_SUMMARY
 COPY GRANTS
 COMMENT = 'Grain: one row per scenario x period x employee. Totals aggregated from T_F_PAYROLL_LINE by pay component category.'
 AS
@@ -32,6 +32,6 @@ SELECT
     ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYER_COST', l.AMOUNT_USD, 0)), 2)              AS OTHER_EMPLOYER_COST_USD,
     ROUND(GROSS_PAY_USD + NSSF_ER_USD + OTHER_EMPLOYER_COST_USD, 2)                 AS EMPLOYER_COST_USD,
     MAX(l.INSERT_DATE)                                                              AS CALCULATED_AT
-FROM T_F_PAYROLL_LINE l
-JOIN T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
+FROM {{ app() }}.T_F_PAYROLL_LINE l
+JOIN {{ app() }}.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
 GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID;

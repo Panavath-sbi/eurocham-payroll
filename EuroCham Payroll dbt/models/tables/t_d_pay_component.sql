@@ -1,6 +1,6 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS T_D_PAY_COMPONENT (
+CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_PAY_COMPONENT (
     PAY_COMPONENT_CODE  TEXT      NOT NULL COMMENT 'Pay component code, e.g. BASE_SALARY, SALARY_TAX',
     PAY_COMPONENT_NAME  TEXT      NOT NULL COMMENT 'Display name',
     CATEGORY            TEXT      NOT NULL COMMENT 'EARNING, EMPLOYEE_DEDUCTION, EMPLOYER_CONTRIBUTION, EMPLOYER_COST or INFORMATION',
@@ -23,9 +23,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM T_D_PAY_COMPONENT;
+    SELECT COUNT(*) INTO :n FROM {{ app() }}.T_D_PAY_COMPONENT;
     IF (n = 0) THEN
-        INSERT INTO T_D_PAY_COMPONENT
+        INSERT INTO {{ app() }}.T_D_PAY_COMPONENT
             (PAY_COMPONENT_CODE, PAY_COMPONENT_NAME, CATEGORY, IS_TAXABLE, IS_NSSF_BASE, IS_USER_ENTERED, DISPLAY_ORDER, DESCRIPTION)
         VALUES
             ('BASE_SALARY',        'Base salary',                'EARNING',               TRUE,  TRUE,  FALSE, 10,  'Contract monthly salary'),

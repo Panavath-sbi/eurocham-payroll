@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_f_scenario_period') }}, {{ ref('t_d_employee') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2; V1.5.0 added CHECK_STATUS, CHECK_COMMENT and CHECKED_BY).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS T_F_PAYROLL_INPUT (
+CREATE TABLE IF NOT EXISTS {{ app() }}.T_F_PAYROLL_INPUT (
     SCENARIO_ID          INT       NOT NULL COMMENT 'Scenario (actual, budget or forecast)',
     PERIOD_KEY           INT       NOT NULL COMMENT 'Period',
     EMPLOYEE_ID          INT       NOT NULL COMMENT 'Employee',
@@ -21,6 +21,6 @@ CREATE TABLE IF NOT EXISTS T_F_PAYROLL_INPUT (
     CHECK_COMMENT        TEXT               COMMENT 'Actual payroll only: reason the employee was rejected, or another note from the checker',
     CHECKED_BY           TEXT               COMMENT 'Actual payroll only: app user who checked or rejected the employee; NULL while PENDING',
     CONSTRAINT PK_T_F_PAYROLL_INPUT PRIMARY KEY (SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID),
-    CONSTRAINT FK_INPUT_SP FOREIGN KEY (SCENARIO_ID, PERIOD_KEY) REFERENCES T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY),
-    CONSTRAINT FK_INPUT_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES T_D_EMPLOYEE (EMPLOYEE_ID)
+    CONSTRAINT FK_INPUT_SP FOREIGN KEY (SCENARIO_ID, PERIOD_KEY) REFERENCES {{ app() }}.T_F_SCENARIO_PERIOD (SCENARIO_ID, PERIOD_KEY),
+    CONSTRAINT FK_INPUT_EMPLOYEE FOREIGN KEY (EMPLOYEE_ID) REFERENCES {{ app() }}.T_D_EMPLOYEE (EMPLOYEE_ID)
 ) COMMENT = 'Monthly variable inputs per employee, plus (actual payroll) the employee check made during approval. For forecasts, rows act as user overrides on top of the projection.';

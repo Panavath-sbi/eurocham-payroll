@@ -48,7 +48,7 @@
    * Unlike Essbase, KHR columns are all filled (Essbase left several at 0), and NSSF ER
      applies the 1,200,000 KHR cap to health and occupational risk too.
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW V_F_PBI_PAYROLL (
+CREATE OR REPLACE VIEW {{ rpt() }}.V_F_PBI_PAYROLL (
     "CostCenter"             COMMENT 'CC_9999-Shared for ECCC, CCIFC for CCIFC',
     "CostCenter_Department"  COMMENT 'Always Default (the department split is used in the app only)',
     "Employee_ID"            COMMENT 'Resource ID, e.g. HR-FRA-001',
@@ -102,9 +102,9 @@ COMMENT = 'Power BI: Fct_Payroll (actual payroll, current year, employee x month
 AS
 WITH months AS (           -- actual payroll months of the current year
     SELECT sp.SCENARIO_ID, sp.PERIOD_KEY, sp.WORKING_DAYS, p.MONTH_NUMBER, p.PERIOD_START_DATE
-    FROM T_F_SCENARIO_PERIOD sp
-    JOIN T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
-    JOIN T_D_PERIOD p  ON p.PERIOD_KEY = sp.PERIOD_KEY
+    FROM {{ app() }}.T_F_SCENARIO_PERIOD sp
+    JOIN {{ app() }}.T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
+    JOIN {{ app() }}.T_D_PERIOD p  ON p.PERIOD_KEY = sp.PERIOD_KEY
     WHERE p.YEAR = YEAR(CURRENT_DATE())
 ),
 amounts AS (               -- one row per employee and month, pay components pivoted
@@ -135,8 +135,8 @@ amounts AS (               -- one row per employee and month, pay components piv
         ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYEE_DEDUCTION',       l.AMOUNT_KHR, 0)), 0) AS DEDUCTIONS_KHR,
         ROUND(SUM(IFF(pc.CATEGORY = 'EMPLOYER_CONTRIBUTION',    l.AMOUNT_KHR, 0)), 0) AS NSSF_ER_KHR,
         SUM(IFF(l.PAY_COMPONENT_CODE = 'TAX_CALC_BASE',         l.AMOUNT_KHR, 0))     AS TAX_CALC_BASE_KHR
-    FROM T_F_PAYROLL_LINE l
-    JOIN T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
+    FROM {{ app() }}.T_F_PAYROLL_LINE l
+    JOIN {{ app() }}.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
     JOIN months m                  ON m.SCENARIO_ID = l.SCENARIO_ID AND m.PERIOD_KEY = l.PERIOD_KEY
     GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID
 ),
@@ -146,7 +146,7 @@ fund_raw AS (              -- fund shares 0..1 per employee and month; 0 when th
            COALESCE(SUM(IFF(fa.FUND_CODE = 'CCIFC',   fa.SHARE_PCT / 100, 0)), 0) AS CCIFC_RAW,
            COALESCE(SUM(IFF(fa.FUND_CODE = 'EU_GATE', fa.SHARE_PCT / 100, 0)), 0) AS EU_GATE_RAW
     FROM amounts am
-    LEFT JOIN T_F_FUND_ALLOCATION fa
+    LEFT JOIN {{ app() }}.T_F_FUND_ALLOCATION fa
            ON fa.SCENARIO_ID = am.SCENARIO_ID AND fa.PERIOD_KEY = am.PERIOD_KEY AND fa.EMPLOYEE_ID = am.EMPLOYEE_ID
     GROUP BY am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, am.ENTITY_CODE
 ),
@@ -161,7 +161,7 @@ month_contract AS (        -- contract version in force in the payroll month
     SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, c.POSITION, c.TAX_STATUS,
            COALESCE(c.DEPENDANT_CHILDREN, 0) + COALESCE(c.DEPENDANT_SPOUSE::INT, 0) AS DEP_COUNT
     FROM amounts am
-    JOIN T_D_EMPLOYEE_CONTRACT c
+    JOIN {{ app() }}.T_D_EMPLOYEE_CONTRACT c
       ON c.EMPLOYEE_ID = am.EMPLOYEE_ID
      AND c.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
      AND (c.VALID_TO_PERIOD_KEY IS NULL OR c.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
@@ -171,7 +171,7 @@ month_contract AS (        -- contract version in force in the payroll month
 tax_rate AS (              -- highest bracket whose lower bound the taxable base exceeds
     SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, tb.TAX_RATE
     FROM amounts am
-    JOIN T_P_TAX_BRACKET tb
+    JOIN {{ app() }}.T_P_TAX_BRACKET tb
       ON tb.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
      AND (tb.VALID_TO_PERIOD_KEY IS NULL OR tb.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
      AND am.TAX_CALC_BASE_KHR > tb.LOWER_BOUND_KHR
@@ -228,12 +228,12 @@ SELECT
     mc.POSITION                                                                     AS "Employee_Position"
 FROM amounts am
 JOIN months m              ON m.SCENARIO_ID = am.SCENARIO_ID AND m.PERIOD_KEY = am.PERIOD_KEY
-JOIN T_D_EMPLOYEE e    ON e.EMPLOYEE_ID = am.EMPLOYEE_ID AND NOT e.IS_PLANNED
+JOIN {{ app() }}.T_D_EMPLOYEE e    ON e.EMPLOYEE_ID = am.EMPLOYEE_ID AND NOT e.IS_PLANNED
 JOIN fund_share fs         ON fs.SCENARIO_ID = am.SCENARIO_ID AND fs.PERIOD_KEY = am.PERIOD_KEY
                           AND fs.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN month_contract mc ON mc.SCENARIO_ID = am.SCENARIO_ID AND mc.PERIOD_KEY = am.PERIOD_KEY
                           AND mc.EMPLOYEE_ID = am.EMPLOYEE_ID
 LEFT JOIN tax_rate tr      ON tr.SCENARIO_ID = am.SCENARIO_ID AND tr.PERIOD_KEY = am.PERIOD_KEY
                           AND tr.EMPLOYEE_ID = am.EMPLOYEE_ID
-LEFT JOIN T_F_PAYROLL_INPUT pi ON pi.SCENARIO_ID = am.SCENARIO_ID AND pi.PERIOD_KEY = am.PERIOD_KEY
+LEFT JOIN {{ app() }}.T_F_PAYROLL_INPUT pi ON pi.SCENARIO_ID = am.SCENARIO_ID AND pi.PERIOD_KEY = am.PERIOD_KEY
                           AND pi.EMPLOYEE_ID = am.EMPLOYEE_ID;

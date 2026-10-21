@@ -31,7 +31,7 @@
    comment on the step (for a step sent back, the reason it was sent back).
    Assigned_To = the email of the user(s) holding the step's approver role today.
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW V_F_PBI_PAYROLL_APPROVAL (
+CREATE OR REPLACE VIEW {{ rpt() }}.V_F_PBI_PAYROLL_APPROVAL (
     "Title"           COMMENT 'Payroll month as YYYYMM, e.g. 202609',
     "Approval_Step"   COMMENT 'Step title, e.g. HR Manager',
     "Approved_By"     COMMENT 'Name of the approver who approved or rejected the step; empty while pending',
@@ -49,7 +49,7 @@ COMMENT = 'Power BI: Payroll_Approval (replaces the SharePoint approval list)'
 AS
 WITH assigned AS (         -- who holds each approver role today (one role per user)
     SELECT u.ROLE_CODE, LISTAGG(u.USER_EMAIL, '; ') WITHIN GROUP (ORDER BY u.USER_EMAIL) AS EMAILS
-    FROM T_D_APP_USER u
+    FROM {{ app() }}.T_D_APP_USER u
     WHERE u.IS_ACTIVE
     GROUP BY u.ROLE_CODE
 )
@@ -65,9 +65,9 @@ SELECT
     'Actuals'                                                             AS "Approval_Type",
     p.YEAR::INT                                                           AS "Year",
     p.MONTH_NUMBER::INT                                                   AS "MonthNo"
-FROM V_F_APPROVAL_PROGRESS pr
-JOIN T_D_PERIOD p             ON p.PERIOD_KEY = pr.PERIOD_KEY
-LEFT JOIN T_D_APP_USER u      ON u.USER_EMAIL = pr.ACTED_BY
+FROM {{ rpt() }}.V_F_APPROVAL_PROGRESS pr
+JOIN {{ app() }}.T_D_PERIOD p             ON p.PERIOD_KEY = pr.PERIOD_KEY
+LEFT JOIN {{ app() }}.T_D_APP_USER u      ON u.USER_EMAIL = pr.ACTED_BY
 LEFT JOIN assigned a              ON a.ROLE_CODE = pr.APPROVER_ROLE
 WHERE pr.SCENARIO_TYPE = 'ACTUAL'
   AND p.YEAR = YEAR(CURRENT_DATE());
