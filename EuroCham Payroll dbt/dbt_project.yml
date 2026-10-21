@@ -1,0 +1,26 @@
+name: EUROCHAM_PAYROLL
+version: 1.0.0
+config-version: 2
+profile: EUROCHAM_PAYROLL
+model-paths:
+  - models
+macro-paths:
+  - macros
+
+# EuroCham Payroll: tables + procedures in APP, views in RPT (converted 1:1 from the DLSync db_scripts/).
+# Every model runs its own DDL (macros/ddl_table.sql):
+#   tables      CREATE TABLE IF NOT EXISTS + reference rows inserted once while the table is empty
+#   views/procs CREATE OR REPLACE ... COPY GRANTS (the app's grants survive a redeploy)
+# Names are written {{ app() }}.T_x / {{ rpt() }}.V_x (macros/schemas.sql: APP/RPT, uat APP_UAT/RPT_UAT, prod APP_PROD/RPT_PROD; database = target);
+# the first line `-- depends_on: {{ ref() }}` keeps the build order.
+# Grants are not managed by dbt: snowflake/config/03_roles.sql (section 10) by hand.
+
+models:
+  EUROCHAM_PAYROLL:
+    +materialized: ddl_table
+    tables:
+      +schema: APP
+    procedures:
+      +schema: APP
+    views:
+      +schema: RPT

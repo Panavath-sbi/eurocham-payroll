@@ -1,0 +1,15 @@
+# Local / editor files
+.DS_Store
+.vscode/
+.idea/
+.folder/
+
+# Never commit credentials
+*.env
+.env*
+connections.toml
+
+# dbt artifacts
+target/
+logs/
+dbt_packages/
