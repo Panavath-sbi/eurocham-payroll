@@ -4,8 +4,8 @@
 dev:
   database: DEV_PAYROLL_DB
   warehouse: SANDBOX_WH                       # shared, created elsewhere
-  schema_app: APP_UAT                         # tables + procedures
-  schema_rpt: RPT_UAT                         # views
+  schema_app: APP_PROD                         # tables + procedures
+  schema_rpt: RPT_PROD                        # views
   role_dba: SF_APA_PAYROLL-DBA                # dbt deploy role, owns the schemas
   role_app: SF_APA_PAYROLL-ETL                # app role (Power Automate)
   service_user: SBI_PAYROLL_SERVICE_USER
