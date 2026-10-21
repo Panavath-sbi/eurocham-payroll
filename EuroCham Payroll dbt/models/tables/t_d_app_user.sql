@@ -1,6 +1,8 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2; V1.5.0 added ROLE_CODE and SIGNATURE_IMAGE, V1.7.0 set the final ROLE_CODE comment).
+-- 2026-10-21  Table name qualified with the app() schema macro like the other table files (was unqualified).
+--             Reference row added: the payslip flow's system user (below).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS T_D_APP_USER (
+CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_APP_USER (
     USER_EMAIL     TEXT      NOT NULL COMMENT 'Login email of the app user',
     DISPLAY_NAME   TEXT      NOT NULL COMMENT 'Name shown on approvals and audit screens',
     IS_ACTIVE      BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Inactive users cannot act in the app',
@@ -12,3 +14,12 @@ CREATE TABLE IF NOT EXISTS T_D_APP_USER (
     SIGNATURE_IMAGE      TEXT               COMMENT 'E-signature image as Base64 (PNG), used by the Power BI report; NULL = no signature',
     CONSTRAINT PK_T_D_APP_USER PRIMARY KEY (USER_EMAIL)
 ) COMMENT = 'Users of the payroll app, with their one role (checked by the procedures) and their e-signature.';
+
+-- 2026-10-21  Reference row: the payslip flow's system user (P_USER_EMAIL of SP_START_PAYSLIP_RUN and
+--             SP_FINISH_PAYSLIP_RUN). No role: it cannot approve and gets no payroll reminders. Not a real
+--             mailbox. Inserted once, only while missing; a later change by hand (e.g. deactivating) is kept.
+MERGE INTO {{ app() }}.T_D_APP_USER t
+USING (SELECT 'payslip-flow@system' AS USER_EMAIL, 'Payslip flow' AS DISPLAY_NAME) s
+   ON t.USER_EMAIL = s.USER_EMAIL
+WHEN NOT MATCHED THEN INSERT (USER_EMAIL, DISPLAY_NAME, IS_ACTIVE, ROLE_CODE)
+    VALUES (s.USER_EMAIL, s.DISPLAY_NAME, TRUE, NULL);
