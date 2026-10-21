@@ -1,7 +1,7 @@
 -- depends_on: {{ ref('t_d_scenario') }}
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_EMPLOYEE (
+CREATE TABLE IF NOT EXISTS T_D_EMPLOYEE (
     EMPLOYEE_ID           INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key (no special ID ranges)',
     RESOURCE_CODE         TEXT      NOT NULL COMMENT 'Employee code shown to users, e.g. HR-KH-006; unique',
     FIRST_NAME            TEXT               COMMENT 'First name',

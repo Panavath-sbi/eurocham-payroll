@@ -1,6 +1,6 @@
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2; V1.5.0 added ROLE_CODE and SIGNATURE_IMAGE, V1.7.0 set the final ROLE_CODE comment).
 -- CREATE TABLE IF NOT EXISTS: dbt runs this on every build; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ app() }}.T_D_APP_USER (
+CREATE TABLE IF NOT EXISTS T_D_APP_USER (
     USER_EMAIL     TEXT      NOT NULL COMMENT 'Login email of the app user',
     DISPLAY_NAME   TEXT      NOT NULL COMMENT 'Name shown on approvals and audit screens',
     IS_ACTIVE      BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Inactive users cannot act in the app',
