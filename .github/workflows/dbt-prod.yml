@@ -1,0 +1,30 @@
+# Runs `dbt build --target prod` (DEV_PAYROLL_DB.APP_PROD + RPT_PROD). Manual only: Actions tab -> "Run workflow".
+# The job pauses for approval when the GitHub Environment `prod` (repo Settings -> Environments) has required reviewers.
+# Same secrets as uat (SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT); the `prod` environment can override them with its own.
+name: EuroCham dbt build (prod)
+
+on:
+  workflow_dispatch:
+
+concurrency: eurocham-dbt-prod  # one build at a time against APP_PROD / RPT_PROD
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PAT }}   # PAT is accepted as the password
+      SNOWFLAKE_ROLE:      SF_APA_PAYROLL-DBA               # owns the schemas; must match the prod role in profiles.yml
+      SNOWFLAKE_WAREHOUSE: SANDBOX_WH
+      SNOWFLAKE_DATABASE:  DEV_PAYROLL_DB
+      SNOWFLAKE_SCHEMA:    APP_PROD                         # dbt Project object lives here; must exist
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: snowflakedb/snowflake-actions@v3      # installs the Snowflake CLI
+      - run: snow connection test -x
+      - run: snow dbt deploy EUROCHAM_PAYROLL_DBT_PROD --source "EuroCham Payroll dbt" -x
+      - run: snow dbt execute -x EUROCHAM_PAYROLL_DBT_PROD build --target prod

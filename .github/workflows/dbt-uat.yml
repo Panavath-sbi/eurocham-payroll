@@ -1,6 +1,7 @@
-# Runs `dbt build` on uat (DEV_PAYROLL_DB.APP_UAT + RPT_UAT, default target in profiles.yml) on every push to the eurocham-uat branch that touches the dbt project.
+# Runs `dbt build --target uat` (DEV_PAYROLL_DB.APP_UAT + RPT_UAT) on every push to the eurocham-uat branch that touches the dbt project.
 # Snowflake runs dbt itself: the CLI uploads the project into a dbt Project object, then executes it.
 # Secrets (repo Settings -> Secrets and variables -> Actions): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT.
+# Prod is a separate workflow (dbt-prod.yml): manual, behind a GitHub Environment.
 name: EuroCham dbt build (uat)
 
 on:
@@ -23,7 +24,7 @@ jobs:
       SNOWFLAKE_ROLE:      SF_APA_PAYROLL-DBA               # owns the schemas; must match the uat role in profiles.yml
       SNOWFLAKE_WAREHOUSE: SANDBOX_WH
       SNOWFLAKE_DATABASE:  DEV_PAYROLL_DB
-      SNOWFLAKE_SCHEMA:    APP_UAT                          # dbt Project object lives here; must exist (snowflake/config/02_schema.sql)
+      SNOWFLAKE_SCHEMA:    APP_UAT                          # dbt Project object lives here; must exist
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,4 +32,4 @@ jobs:
       - uses: snowflakedb/snowflake-actions@v3      # installs the Snowflake CLI
       - run: snow connection test -x
       - run: snow dbt deploy EUROCHAM_PAYROLL_DBT_UAT --source "EuroCham Payroll dbt" -x
-      - run: snow dbt execute -x EUROCHAM_PAYROLL_DBT_UAT build
+      - run: snow dbt execute -x EUROCHAM_PAYROLL_DBT_UAT build --target uat   # explicit: profiles.yml defaults to prod
