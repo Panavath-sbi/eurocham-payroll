@@ -21,8 +21,8 @@ EUROCHAM_PAYROLL:
 
     prod:
       type: snowflake
-      role: <PROD_DEPLOY_ROLE>
-      warehouse: <PROD_WH>
-      database: <PROD_DB>
-      schema: <PROD_SCHEMA>
+      role: '"SF_APA_PAYROLL-DBA"'
+      warehouse: SANDBOX_WH
+      database: DEV_PAYROLL_DB
+      schema: APP_PROD
       threads: 8
