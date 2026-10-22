@@ -16,9 +16,9 @@ jobs:
       SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PAT }}   
-      SNOWFLAKE_ROLE:      '"SF_APA_PAYROLL-DBA"'           
-      SNOWFLAKE_WAREHOUSE: SANDBOX_WH
-      SNOWFLAKE_DATABASE:  DEV_PAYROLL_DB
+      SNOWFLAKE_ROLE:      <PROD_DEPLOY_ROLE>        
+      SNOWFLAKE_WAREHOUSE: <PROD_WH>
+      SNOWFLAKE_DATABASE:  <PROD_DB>
       SNOWFLAKE_SCHEMA:    APP       # Production Schema should be named as APP (consistent with Power APP)            
     steps:
       - uses: actions/checkout@v4
