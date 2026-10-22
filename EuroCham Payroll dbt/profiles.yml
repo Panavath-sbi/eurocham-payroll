@@ -1,5 +1,5 @@
 EUROCHAM_PAYROLL:
-  target: uat
+  target: prod
   outputs:
     # Tables + procedures go to APP, views to RPT (macros/generate_schema_name.sql); `schema` below is only dbt's default.
     # This account
