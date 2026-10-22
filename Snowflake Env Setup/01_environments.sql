@@ -13,7 +13,9 @@ CREATE DATABASE IF NOT EXISTS {{ database }}
 -------------------------------------------------------------------------------
 -- 2. SCHEMAS
 -------------------------------------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS {{ database }}.{{ schema_app }}
-    COMMENT = 'EuroCham Payroll - UAT tables and procedures (dbt target uat)';
-CREATE SCHEMA IF NOT EXISTS {{ database }}.{{ schema_rpt }}
-    COMMENT = 'EuroCham Payroll - UAT views (dbt target uat)';
+USE DATABASE {{ database }};
+
+CREATE SCHEMA IF NOT EXISTS APP
+    COMMENT = 'EuroCham Payroll - Tables and procedures';
+CREATE SCHEMA IF NOT EXISTS RPT
+    COMMENT = 'EuroCham Payroll - views';

@@ -38,6 +38,7 @@ GitHub Actions (`.github/workflows/dbt-uat.yml`).
 1. Edit the file on the `eurocham-uat` branch and push.
 2. GitHub Actions deploys the project (`snow dbt deploy`) and runs `dbt build` on the `uat` target
    (`DEV_PAYROLL_DB.APP_UAT` / `RPT_UAT`).
+3. Prod is deployed by hand from `main` (manual workflow, approval required): see [docs/DEPLOY_PROD.md](docs/DEPLOY_PROD.md).
 
 ## Stored procedures (APP, 25)
 

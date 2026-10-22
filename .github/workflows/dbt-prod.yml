@@ -6,7 +6,7 @@ name: EuroCham dbt build (prod)
 on:
   workflow_dispatch:
 
-concurrency: eurocham-dbt-prod  # one build at a time against APP_PROD / RPT_PROD
+concurrency: eurocham-dbt-prod  
 
 jobs:
   build:
@@ -15,11 +15,11 @@ jobs:
     env:
       SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PAT }}   # PAT is accepted as the password
-      SNOWFLAKE_ROLE:      SF_APA_PAYROLL-DBA               # owns the schemas; must match the prod role in profiles.yml
-      SNOWFLAKE_WAREHOUSE: SANDBOX_WH
-      SNOWFLAKE_DATABASE:  DEV_PAYROLL_DB
-      SNOWFLAKE_SCHEMA:    APP_PROD                         # dbt Project object lives here; must exist
+      SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PAT }}   
+      SNOWFLAKE_ROLE:      <PROD_DEPLOY_ROLE>            
+      SNOWFLAKE_WAREHOUSE: <PROD_WH>
+      SNOWFLAKE_DATABASE:  <PROD_DB>
+      SNOWFLAKE_SCHEMA:    APP                   
     steps:
       - uses: actions/checkout@v4
         with:
