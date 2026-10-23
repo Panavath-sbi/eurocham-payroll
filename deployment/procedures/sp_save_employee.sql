@@ -49,7 +49,7 @@ COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
 COMMENT = 'Creates an employee or updates identity fields'
-EXECUTE AS OWNER
+EXECUTE AS CALLER
 AS
 $$
 DECLARE

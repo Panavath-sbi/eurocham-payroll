@@ -42,7 +42,7 @@ COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
 COMMENT = 'Recalculates one or all editable periods of a scenario'
-EXECUTE AS OWNER
+EXECUTE AS CALLER
 AS
 $$
 DECLARE

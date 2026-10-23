@@ -46,7 +46,7 @@ COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
 COMMENT = 'Sets the per-employee check of the payroll month'
-EXECUTE AS OWNER
+EXECUTE AS CALLER
 AS
 $$
 DECLARE

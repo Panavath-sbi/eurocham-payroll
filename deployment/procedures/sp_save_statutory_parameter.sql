@@ -40,7 +40,7 @@ COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
 COMMENT = 'Changes statutory parameters from the open payroll month onward'
-EXECUTE AS OWNER
+EXECUTE AS CALLER
 AS
 $$
 DECLARE

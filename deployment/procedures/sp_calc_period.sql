@@ -60,7 +60,7 @@ COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
 COMMENT = 'Internal: calculates the pay lines of one scenario period'
-EXECUTE AS OWNER
+EXECUTE AS CALLER
 AS
 $$
 DECLARE
