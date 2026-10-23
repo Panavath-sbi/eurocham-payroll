@@ -1,0 +1,36 @@
+USE ROLE "{{ role_owner }}";
+USE DATABASE {{ database }};
+
+-- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
+-- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
+CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_DEPARTMENT (
+    DEPARTMENT_CODE  TEXT      NOT NULL COMMENT 'Department / cost center code',
+    DEPARTMENT_NAME  TEXT      NOT NULL COMMENT 'Department display name',
+    IS_ACTIVE        BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Whether new allocations can use this department',
+    DISPLAY_ORDER    INT                COMMENT 'Sort order in the app and reports',
+    INSERT_DATE      TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation timestamp',
+    UPDATE_DATE      TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Last update timestamp',
+    INSERT_BY        TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
+    UPDATE_BY        TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
+    CONSTRAINT PK_T_D_DEPARTMENT PRIMARY KEY (DEPARTMENT_CODE)
+) COMMENT = 'Department / cost center that payroll cost is allocated to. Replaces the PCT_* columns.';
+
+-- 2026-10-19  Reference data (from V1.1.0): the seven departments (no Default).
+-- Reference rows: inserted once, only while the table is empty.
+EXECUTE IMMEDIATE $$
+DECLARE
+    n INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO :n FROM {{ schema_app }}.T_D_DEPARTMENT;
+    IF (n = 0) THEN
+        INSERT INTO {{ schema_app }}.T_D_DEPARTMENT (DEPARTMENT_CODE, DEPARTMENT_NAME, DISPLAY_ORDER) VALUES
+            ('ADMIN',         'Admin',         1),
+            ('ADVOCACY',      'Advocacy',      2),
+            ('COMMUNICATION', 'Communication', 3),
+            ('EVENTS',        'Events',        4),
+            ('EXECUTIVE',     'Executive',     5),
+            ('MEMBERSHIPS',   'Memberships',   6),
+            ('SERVICES',      'Services',      7);
+    END IF;
+END;
+$$;
