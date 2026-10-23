@@ -38,7 +38,7 @@ USE DATABASE {{ database }};
    exactly as approved: no recalculation happens here, because any change after an
    approval already resets that approval.
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ schema_app }}.SP_FINALIZE_PAYROLL(P_USER_EMAIL TEXT, P_PERIOD_KEY INT)
+CREATE OR REPLACE PROCEDURE APP.SP_FINALIZE_PAYROLL(P_USER_EMAIL TEXT, P_PERIOD_KEY INT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -55,16 +55,16 @@ DECLARE
     v_lines   INT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ schema_app }}.T_D_APP_USER u
+    FROM APP.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
-    SELECT MAX(SCENARIO_ID) INTO :v_scen FROM {{ schema_app }}.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL';
+    SELECT MAX(SCENARIO_ID) INTO :v_scen FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL';
 
     SELECT MAX(PERIOD_STATUS) INTO :v_status
-    FROM {{ schema_app }}.T_F_SCENARIO_PERIOD WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
+    FROM APP.T_F_SCENARIO_PERIOD WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_status IS NULL) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || P_PERIOD_KEY || ' does not exist.');
     END IF;
@@ -73,26 +73,26 @@ BEGIN
     END IF;
 
     SELECT COUNT(*), COUNT_IF(STEP_STATUS <> 'APPROVED') INTO :v_steps, :v_pending
-    FROM {{ schema_rpt }}.V_F_APPROVAL_PROGRESS WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
+    FROM RPT.V_F_APPROVAL_PROGRESS WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_steps = 0 OR v_pending > 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_pending || ' approval step(s) are not approved yet.');
     END IF;
 
     SELECT COUNT(*) INTO :v_lines
-    FROM {{ schema_app }}.T_F_PAYROLL_LINE WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
+    FROM APP.T_F_PAYROLL_LINE WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_lines = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Period ' || P_PERIOD_KEY || ' has no calculated payroll.');
     END IF;
 
     BEGIN TRANSACTION;
 
-    UPDATE {{ schema_app }}.T_F_SCENARIO_PERIOD
+    UPDATE APP.T_F_SCENARIO_PERIOD
     SET PERIOD_STATUS = 'FINALIZED', FINALIZED_AT = CURRENT_TIMESTAMP, FINALIZED_BY = :P_USER_EMAIL,
         UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     WHERE SCENARIO_ID = :v_scen AND PERIOD_KEY = :P_PERIOD_KEY;
 
 
-    INSERT INTO {{ schema_app }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_F_SCENARIO_PERIOD',
            OBJECT_CONSTRUCT('SCENARIO_ID', :v_scen, 'PERIOD_KEY', :P_PERIOD_KEY),
            'UPDATE',

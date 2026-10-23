@@ -24,7 +24,7 @@ USE DATABASE {{ database }};
 /* -------------------------------------------------------------------------------------
    Calendar: Settings (working days), Create Payroll (rates of the next month)
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_D_PERIOD
+CREATE OR REPLACE VIEW RPT.V_D_PERIOD
 COPY GRANTS
 COMMENT = 'Calendar months with working days (actual and budget calendars) and published NBC / NSSF rates.'
 AS
@@ -41,4 +41,4 @@ SELECT
     BUDGET_WORKING_DAYS,
     FX_RATE_NBC,
     FX_RATE_NSSF
-FROM {{ schema_app }}.T_D_PERIOD;
+FROM APP.T_D_PERIOD;

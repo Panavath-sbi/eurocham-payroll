@@ -25,7 +25,7 @@ USE DATABASE {{ database }};
    Fund and department splits in one list (reading only; they stay two tables):
    Cost Center page
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_ALLOCATION (
+CREATE OR REPLACE VIEW RPT.V_F_ALLOCATION (
     SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID,
     ALLOCATION_TYPE COMMENT 'FUND or DEPARTMENT',
     ALLOCATION_CODE COMMENT 'Fund code or department code',
@@ -36,9 +36,9 @@ COPY GRANTS
 COMMENT = 'Fund and department splits per scenario, month and employee (percent, each type totals 100).'
 AS
 SELECT f.SCENARIO_ID, f.PERIOD_KEY, f.EMPLOYEE_ID, 'FUND', f.FUND_CODE, fu.FUND_NAME, f.SHARE_PCT
-FROM {{ schema_app }}.T_F_FUND_ALLOCATION f
-JOIN {{ schema_app }}.T_D_FUND fu ON fu.FUND_CODE = f.FUND_CODE
+FROM APP.T_F_FUND_ALLOCATION f
+JOIN APP.T_D_FUND fu ON fu.FUND_CODE = f.FUND_CODE
 UNION ALL
 SELECT d.SCENARIO_ID, d.PERIOD_KEY, d.EMPLOYEE_ID, 'DEPARTMENT', d.DEPARTMENT_CODE, de.DEPARTMENT_NAME, d.SHARE_PCT
-FROM {{ schema_app }}.T_F_DEPARTMENT_ALLOCATION d
-JOIN {{ schema_app }}.T_D_DEPARTMENT de ON de.DEPARTMENT_CODE = d.DEPARTMENT_CODE;
+FROM APP.T_F_DEPARTMENT_ALLOCATION d
+JOIN APP.T_D_DEPARTMENT de ON de.DEPARTMENT_CODE = d.DEPARTMENT_CODE;

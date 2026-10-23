@@ -33,7 +33,7 @@ USE DATABASE {{ database }};
    month, the applied rates change too: approvals reset and the month is recalculated.
    A finalized month is refused. Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ schema_app }}.SP_SAVE_EXCHANGE_RATE(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_FX_RATE_NBC FLOAT, P_FX_RATE_NSSF FLOAT)
+CREATE OR REPLACE PROCEDURE APP.SP_SAVE_EXCHANGE_RATE(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_FX_RATE_NBC FLOAT, P_FX_RATE_NSSF FLOAT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -50,7 +50,7 @@ DECLARE
     v_old_nssf FLOAT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ schema_app }}.T_D_APP_USER u
+    FROM APP.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
@@ -59,38 +59,38 @@ BEGIN
     IF (P_FX_RATE_NBC IS NULL OR P_FX_RATE_NSSF IS NULL OR P_FX_RATE_NBC <= 0 OR P_FX_RATE_NSSF <= 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Both rates must be greater than 0.');
     END IF;
-    SELECT COUNT(*) INTO :v_in_cal FROM {{ schema_app }}.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
+    SELECT COUNT(*) INTO :v_in_cal FROM APP.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_in_cal = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || P_PERIOD_KEY || ' is not in the calendar.');
     END IF;
 
     SELECT MAX(s.SCENARIO_ID), MAX(x.PERIOD_STATUS) INTO :v_actual, :v_status
-    FROM {{ schema_app }}.T_D_SCENARIO s
-    LEFT JOIN {{ schema_app }}.T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID AND x.PERIOD_KEY = :P_PERIOD_KEY
+    FROM APP.T_D_SCENARIO s
+    LEFT JOIN APP.T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID AND x.PERIOD_KEY = :P_PERIOD_KEY
     WHERE s.SCENARIO_TYPE = 'ACTUAL';
     IF (v_status = 'FINALIZED') THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || P_PERIOD_KEY || ' is finalized; its rates cannot change.');
     END IF;
 
     SELECT MAX(FX_RATE_NBC), MAX(FX_RATE_NSSF) INTO :v_old_nbc, :v_old_nssf
-    FROM {{ schema_app }}.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
+    FROM APP.T_D_PERIOD WHERE PERIOD_KEY = :P_PERIOD_KEY;
 
     BEGIN TRANSACTION;
 
-    UPDATE {{ schema_app }}.T_D_PERIOD
+    UPDATE APP.T_D_PERIOD
     SET FX_RATE_NBC = :P_FX_RATE_NBC, FX_RATE_NSSF = :P_FX_RATE_NSSF,
         UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     WHERE PERIOD_KEY = :P_PERIOD_KEY;
 
-    INSERT INTO {{ schema_app }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_D_PERIOD', OBJECT_CONSTRUCT('PERIOD_KEY', :P_PERIOD_KEY), 'UPDATE', OBJECT_CONSTRUCT('FX_RATE_NBC', :v_old_nbc, 'FX_RATE_NSSF', :v_old_nssf), OBJECT_CONSTRUCT('FX_RATE_NBC', :P_FX_RATE_NBC, 'FX_RATE_NSSF', :P_FX_RATE_NSSF), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     IF (v_status = 'OPEN' OR v_status = 'IN_APPROVAL') THEN
-        UPDATE {{ schema_app }}.T_F_SCENARIO_PERIOD
+        UPDATE APP.T_F_SCENARIO_PERIOD
         SET FX_RATE_NBC = :P_FX_RATE_NBC, FX_RATE_NSSF = :P_FX_RATE_NSSF, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
         WHERE SCENARIO_ID = :v_actual AND PERIOD_KEY = :P_PERIOD_KEY;
-        CALL {{ schema_app }}.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :P_PERIOD_KEY, NULL, 'Exchange rates changed');
-        CALL {{ schema_app }}.SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :P_PERIOD_KEY);
+        CALL APP.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :P_PERIOD_KEY, NULL, 'Exchange rates changed');
+        CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :P_PERIOD_KEY);
     END IF;
 
     COMMIT;

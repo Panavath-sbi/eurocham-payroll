@@ -4,7 +4,7 @@ USE DATABASE {{ database }};
 
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_P_TAX_BRACKET (
+CREATE TABLE IF NOT EXISTS APP.T_P_TAX_BRACKET (
     VALID_FROM_PERIOD_KEY    INT       NOT NULL COMMENT 'First period the bracket set applies to',
     VALID_TO_PERIOD_KEY      INT                COMMENT 'Last period the bracket set applies to; NULL = still in effect',
     BRACKET_NUMBER           INT       NOT NULL COMMENT 'Bracket sequence 1..n',
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_P_TAX_BRACKET (
     INSERT_BY                TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
     UPDATE_BY                TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_P_TAX_BRACKET PRIMARY KEY (VALID_FROM_PERIOD_KEY, BRACKET_NUMBER),
-    CONSTRAINT FK_BRACKET_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES {{ schema_app }}.T_D_PERIOD (PERIOD_KEY)
+    CONSTRAINT FK_BRACKET_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES APP.T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Resident salary tax brackets, effective-dated as a set.';
 
 -- 2026-10-19  Reference data (from V1.1.0): resident tax brackets from 202601.
@@ -26,9 +26,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ schema_app }}.T_P_TAX_BRACKET;
+    SELECT COUNT(*) INTO :n FROM APP.T_P_TAX_BRACKET;
     IF (n = 0) THEN
-        INSERT INTO {{ schema_app }}.T_P_TAX_BRACKET
+        INSERT INTO APP.T_P_TAX_BRACKET
             (VALID_FROM_PERIOD_KEY, BRACKET_NUMBER, LOWER_BOUND_KHR, UPPER_BOUND_KHR, TAX_RATE, CUMULATIVE_DEDUCTION_KHR)
         VALUES
             (202601, 1, 0,        1500000,  0.00, 0),

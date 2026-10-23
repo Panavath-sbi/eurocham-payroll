@@ -4,7 +4,7 @@ USE DATABASE {{ database }};
 
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_P_STATUTORY_PARAMETER (
+CREATE TABLE IF NOT EXISTS APP.T_P_STATUTORY_PARAMETER (
     PARAM_CODE             TEXT      NOT NULL COMMENT 'Parameter code, e.g. NSSF_EE_PENSION_RATE',
     VALID_FROM_PERIOD_KEY  INT       NOT NULL COMMENT 'First period the value applies to',
     VALID_TO_PERIOD_KEY    INT                COMMENT 'Last period the value applies to; NULL = still in effect',
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_P_STATUTORY_PARAMETER (
     INSERT_BY              TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
     UPDATE_BY              TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_P_STATUTORY_PARAMETER PRIMARY KEY (PARAM_CODE, VALID_FROM_PERIOD_KEY),
-    CONSTRAINT FK_PARAM_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES {{ schema_app }}.T_D_PERIOD (PERIOD_KEY)
+    CONSTRAINT FK_PARAM_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES APP.T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Statutory rates, caps and constants, effective-dated. A change is a new row with a new VALID_FROM; old values stay for history. Replaces T_P_TAX_CEILING (except brackets).';
 
 -- 2026-10-19  Reference data (from V1.1.0). Statutory values migrated from DEV.T_P_TAX_CEILING - verify against current law.
@@ -26,9 +26,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ schema_app }}.T_P_STATUTORY_PARAMETER;
+    SELECT COUNT(*) INTO :n FROM APP.T_P_STATUTORY_PARAMETER;
     IF (n = 0) THEN
-        INSERT INTO {{ schema_app }}.T_P_STATUTORY_PARAMETER (PARAM_CODE, VALID_FROM_PERIOD_KEY, PARAM_VALUE, UNIT, DESCRIPTION) VALUES
+        INSERT INTO APP.T_P_STATUTORY_PARAMETER (PARAM_CODE, VALID_FROM_PERIOD_KEY, PARAM_VALUE, UNIT, DESCRIPTION) VALUES
             ('NSSF_EE_PENSION_RATE',       202601, 0.02,    'RATE',       'Employee pension contribution rate'),
             ('NSSF_ER_PENSION_RATE',       202601, 0.02,    'RATE',       'Employer pension contribution rate'),
             ('NSSF_HEALTH_RATE',           202601, 0.026,   'RATE',       'Employer healthcare contribution rate'),

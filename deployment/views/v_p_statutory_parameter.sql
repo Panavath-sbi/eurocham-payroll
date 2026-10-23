@@ -17,7 +17,7 @@ USE DATABASE {{ database }};
      stays unchanged. A new PARAM_CODE shows under "Other" with its code as label until
      it is added below.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_P_STATUTORY_PARAMETER (
+CREATE OR REPLACE VIEW RPT.V_P_STATUTORY_PARAMETER (
     PERIOD_KEY            COMMENT 'Month the value applies to',
     PARAM_CODE,
     PARAM_GROUP           COMMENT 'Heading in the app: NSSF, Salary tax or Other',
@@ -69,6 +69,6 @@ SELECT
     sp.PARAM_VALUE,
     sp.UNIT,
     sp.VALID_FROM_PERIOD_KEY
-FROM {{ schema_app }}.T_D_PERIOD p
-JOIN {{ schema_app }}.T_P_STATUTORY_PARAMETER sp
+FROM APP.T_D_PERIOD p
+JOIN APP.T_P_STATUTORY_PARAMETER sp
   ON p.PERIOD_KEY BETWEEN sp.VALID_FROM_PERIOD_KEY AND COALESCE(sp.VALID_TO_PERIOD_KEY, 999912);

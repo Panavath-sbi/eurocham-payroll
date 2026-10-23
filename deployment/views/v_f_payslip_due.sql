@@ -39,7 +39,7 @@ USE DATABASE {{ database }};
    NONE         Nothing to do today (too early, waiting for the pay date, waiting for the
                 next model refresh, already sent, or a weekend).
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_PAYSLIP_DUE (
+CREATE OR REPLACE VIEW RPT.V_F_PAYSLIP_DUE (
     PERIOD_KEY                    COMMENT 'Actual payroll month (YYYYMM)',
     PERIOD_LABEL                  COMMENT 'Month and year, e.g. October 2026',
     PAY_DATE                      COMMENT 'Last Monday-Friday of the month',
@@ -64,7 +64,7 @@ months AS (
                WHEN 7 THEN DATEADD('day', -2, p.PERIOD_END_DATE)
                ELSE p.PERIOD_END_DATE
            END AS PAY_DATE
-    FROM {{ schema_app }}.T_D_PERIOD p, today t
+    FROM APP.T_D_PERIOD p, today t
     WHERE p.PERIOD_KEY >= 202610                       -- START_PERIOD_KEY
       AND p.PERIOD_START_DATE <= t.D
 ),
@@ -79,9 +79,9 @@ state AS (
            t.D                                                                       AS TODAY_LOCAL
     FROM months m
     CROSS JOIN today t
-    LEFT JOIN {{ schema_app }}.T_D_SCENARIO s ON s.SCENARIO_TYPE = 'ACTUAL'
-    LEFT JOIN {{ schema_app }}.T_F_SCENARIO_PERIOD sp ON sp.SCENARIO_ID = s.SCENARIO_ID AND sp.PERIOD_KEY = m.PERIOD_KEY
-    LEFT JOIN {{ schema_app }}.T_F_PAYSLIP_RUN r      ON r.PERIOD_KEY = m.PERIOD_KEY
+    LEFT JOIN APP.T_D_SCENARIO s ON s.SCENARIO_TYPE = 'ACTUAL'
+    LEFT JOIN APP.T_F_SCENARIO_PERIOD sp ON sp.SCENARIO_ID = s.SCENARIO_ID AND sp.PERIOD_KEY = m.PERIOD_KEY
+    LEFT JOIN APP.T_F_PAYSLIP_RUN r      ON r.PERIOD_KEY = m.PERIOD_KEY
 )
 SELECT
     PERIOD_KEY, PERIOD_LABEL, PAY_DATE, REMIND_FROM, PERIOD_STATUS, FINALIZED_AT_LOCAL,

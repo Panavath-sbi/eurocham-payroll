@@ -24,7 +24,7 @@ USE DATABASE {{ database }};
 /* -------------------------------------------------------------------------------------
    App users and their role (no signature image): Settings, showing names
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_D_APP_USER (
+CREATE OR REPLACE VIEW RPT.V_D_APP_USER (
     USER_EMAIL, DISPLAY_NAME, ROLE_CODE, IS_ACTIVE,
     HAS_SIGNATURE COMMENT 'TRUE when an e-signature image is stored for the user'
 )
@@ -32,4 +32,4 @@ COPY GRANTS
 COMMENT = 'Users of the payroll app with their one role. The signature image itself is not shown.'
 AS
 SELECT USER_EMAIL, DISPLAY_NAME, ROLE_CODE, IS_ACTIVE, SIGNATURE_IMAGE IS NOT NULL
-FROM {{ schema_app }}.T_D_APP_USER;
+FROM APP.T_D_APP_USER;

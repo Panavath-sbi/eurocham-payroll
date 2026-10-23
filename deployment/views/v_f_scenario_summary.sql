@@ -12,7 +12,7 @@ USE DATABASE {{ database }};
    2026-10-19  Own file for DLSync (was in R__views_rpt.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_SCENARIO_SUMMARY
+CREATE OR REPLACE VIEW RPT.V_F_SCENARIO_SUMMARY
 COPY GRANTS
 COMMENT = 'Monthly totals per scenario and entity. Power Apps filters on SCENARIO_ID; no comparison logic in Snowflake.'
 AS
@@ -32,8 +32,8 @@ SELECT
     SUM(f.SALARY_TAX_USD)          AS SALARY_TAX_USD,
     SUM(f.NET_PAY_USD)             AS NET_PAY_USD,
     SUM(f.EMPLOYER_COST_USD)       AS EMPLOYER_COST_USD
-FROM {{ schema_rpt }}.V_F_PAYROLL_SUMMARY f
-JOIN {{ schema_app }}.T_D_SCENARIO s ON s.SCENARIO_ID = f.SCENARIO_ID
-JOIN {{ schema_app }}.T_D_PERIOD p  ON p.PERIOD_KEY = f.PERIOD_KEY
+FROM RPT.V_F_PAYROLL_SUMMARY f
+JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = f.SCENARIO_ID
+JOIN APP.T_D_PERIOD p  ON p.PERIOD_KEY = f.PERIOD_KEY
 GROUP BY s.SCENARIO_ID, s.SCENARIO_TYPE, s.SCENARIO_NAME, s.SCENARIO_STATUS, s.IS_OFFICIAL,
          p.YEAR, f.PERIOD_KEY, p.PERIOD_LABEL, f.ENTITY_CODE;

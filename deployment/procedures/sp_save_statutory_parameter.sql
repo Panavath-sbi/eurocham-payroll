@@ -35,7 +35,7 @@ USE DATABASE {{ database }};
    Checks: known code, value >= 0, RATE at most 1, no duplicate codes.
    Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ schema_app }}.SP_SAVE_STATUTORY_PARAMETER(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_PARAMS TEXT)
+CREATE OR REPLACE PROCEDURE APP.SP_SAVE_STATUTORY_PARAMETER(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_PARAMS TEXT)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -57,15 +57,15 @@ DECLARE
     v_type     TEXT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ schema_app }}.T_D_APP_USER u
+    FROM APP.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
     END IF;
 
     SELECT MAX(x.PERIOD_STATUS) INTO :v_status
-    FROM {{ schema_app }}.T_F_SCENARIO_PERIOD x
-    JOIN {{ schema_app }}.T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
+    FROM APP.T_F_SCENARIO_PERIOD x
+    JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
     WHERE x.PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_status IS NULL OR (v_status <> 'OPEN' AND v_status <> 'IN_APPROVAL')) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Month ' || COALESCE(P_PERIOD_KEY::TEXT, '?') || ' is not the open payroll month; parameters can only change from the open month.');
@@ -74,7 +74,7 @@ BEGIN
     v_prev_key := TO_NUMBER(TO_CHAR(DATEADD(MONTH, -1, TO_DATE(P_PERIOD_KEY::TEXT, 'YYYYMM')), 'YYYYMM'));
 
     -- Each sent value with the row in force in P_PERIOD_KEY
-    CREATE OR REPLACE TEMPORARY TABLE {{ schema_app }}.TMP_STAT_PARAM AS
+    CREATE OR REPLACE TEMPORARY TABLE APP.TMP_STAT_PARAM AS
     SELECT f.VALUE:param_code::TEXT    AS PARAM_CODE,
            f.VALUE:param_value::FLOAT  AS NEW_VALUE,
            sp.PARAM_CODE IS NOT NULL   AS FOUND,
@@ -83,7 +83,7 @@ BEGIN
            sp.PARAM_VALUE              AS OLD_VALUE,
            sp.UNIT, sp.DESCRIPTION, sp.LEGAL_REFERENCE
     FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:P_PARAMS))) f
-    LEFT JOIN {{ schema_app }}.T_P_STATUTORY_PARAMETER sp
+    LEFT JOIN APP.T_P_STATUTORY_PARAMETER sp
            ON sp.PARAM_CODE = f.VALUE:param_code::TEXT
           AND :P_PERIOD_KEY BETWEEN sp.VALID_FROM_PERIOD_KEY AND COALESCE(sp.VALID_TO_PERIOD_KEY, 999912);
 
@@ -92,80 +92,80 @@ BEGIN
            COUNT(*) - COUNT(DISTINCT PARAM_CODE),
            COUNT_IF(FOUND AND ABS(NEW_VALUE - OLD_VALUE) > 1e-9)
       INTO :v_rows, :v_bad, :v_dupes, :v_changed
-    FROM {{ schema_app }}.TMP_STAT_PARAM;
+    FROM APP.TMP_STAT_PARAM;
     IF (v_rows = 0 OR v_bad > 0 OR v_dupes > 0) THEN
-        DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_PARAM;
+        DROP TABLE IF EXISTS APP.TMP_STAT_PARAM;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Each parameter needs a known code and a value of 0 or more (rates at most 100%), with no duplicates.');
     END IF;
     IF (v_changed = 0) THEN
-        DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_PARAM;
+        DROP TABLE IF EXISTS APP.TMP_STAT_PARAM;
         RETURN OBJECT_CONSTRUCT('status', 'OK', 'message', 'No changes to save.');
     END IF;
-    DELETE FROM {{ schema_app }}.TMP_STAT_PARAM WHERE ABS(NEW_VALUE - OLD_VALUE) <= 1e-9;
+    DELETE FROM APP.TMP_STAT_PARAM WHERE ABS(NEW_VALUE - OLD_VALUE) <= 1e-9;
 
     -- Scenario periods from P_PERIOD_KEY on that take the new values
-    CREATE OR REPLACE TEMPORARY TABLE {{ schema_app }}.TMP_STAT_RECALC AS
+    CREATE OR REPLACE TEMPORARY TABLE APP.TMP_STAT_RECALC AS
     SELECT x.SCENARIO_ID, x.PERIOD_KEY, s.SCENARIO_TYPE
-    FROM {{ schema_app }}.T_F_SCENARIO_PERIOD x
-    JOIN {{ schema_app }}.T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID
+    FROM APP.T_F_SCENARIO_PERIOD x
+    JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = x.SCENARIO_ID
     WHERE x.PERIOD_KEY >= :P_PERIOD_KEY
       AND (   (s.SCENARIO_TYPE = 'ACTUAL' AND x.PERIOD_STATUS IN ('OPEN', 'IN_APPROVAL'))
            OR (s.SCENARIO_TYPE = 'FORECAST' AND s.SCENARIO_STATUS = 'DRAFT' AND x.PERIOD_STATUS = 'DRAFT')
            OR (s.SCENARIO_TYPE = 'BUDGET' AND s.SCENARIO_STATUS IN ('DRAFT', 'REJECTED') AND x.PERIOD_STATUS = 'DRAFT'));
-    SELECT COUNT(*) INTO :v_recalc FROM {{ schema_app }}.TMP_STAT_RECALC;
+    SELECT COUNT(*) INTO :v_recalc FROM APP.TMP_STAT_RECALC;
 
     BEGIN TRANSACTION;
 
-    INSERT INTO {{ schema_app }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_P_STATUTORY_PARAMETER',
            OBJECT_CONSTRUCT('PARAM_CODE', PARAM_CODE, 'VALID_FROM_PERIOD_KEY', :P_PERIOD_KEY),
            IFF(OLD_FROM = :P_PERIOD_KEY, 'UPDATE', 'INSERT'),
            OBJECT_CONSTRUCT('PARAM_VALUE', OLD_VALUE, 'VALID_FROM_PERIOD_KEY', OLD_FROM),
            OBJECT_CONSTRUCT('PARAM_VALUE', NEW_VALUE, 'VALID_FROM_PERIOD_KEY', :P_PERIOD_KEY),
            :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
-    FROM {{ schema_app }}.TMP_STAT_PARAM;
+    FROM APP.TMP_STAT_PARAM;
 
     -- Started this month: change the value in place
-    UPDATE {{ schema_app }}.T_P_STATUTORY_PARAMETER sp
+    UPDATE APP.T_P_STATUTORY_PARAMETER sp
     SET PARAM_VALUE = t.NEW_VALUE, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-    FROM {{ schema_app }}.TMP_STAT_PARAM t
+    FROM APP.TMP_STAT_PARAM t
     WHERE sp.PARAM_CODE = t.PARAM_CODE AND sp.VALID_FROM_PERIOD_KEY = :P_PERIOD_KEY
       AND t.OLD_FROM = :P_PERIOD_KEY;
 
     -- Started earlier: end it last month, new row from this month
-    UPDATE {{ schema_app }}.T_P_STATUTORY_PARAMETER sp
+    UPDATE APP.T_P_STATUTORY_PARAMETER sp
     SET VALID_TO_PERIOD_KEY = :v_prev_key, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
-    FROM {{ schema_app }}.TMP_STAT_PARAM t
+    FROM APP.TMP_STAT_PARAM t
     WHERE sp.PARAM_CODE = t.PARAM_CODE AND sp.VALID_FROM_PERIOD_KEY = t.OLD_FROM
       AND t.OLD_FROM < :P_PERIOD_KEY;
 
-    INSERT INTO {{ schema_app }}.T_P_STATUTORY_PARAMETER
+    INSERT INTO APP.T_P_STATUTORY_PARAMETER
         (PARAM_CODE, VALID_FROM_PERIOD_KEY, VALID_TO_PERIOD_KEY, PARAM_VALUE, UNIT, DESCRIPTION, LEGAL_REFERENCE, INSERT_BY, UPDATE_BY)
     SELECT PARAM_CODE, :P_PERIOD_KEY, OLD_TO, NEW_VALUE, UNIT, DESCRIPTION, LEGAL_REFERENCE, :P_USER_EMAIL, :P_USER_EMAIL
-    FROM {{ schema_app }}.TMP_STAT_PARAM
+    FROM APP.TMP_STAT_PARAM
     WHERE OLD_FROM < :P_PERIOD_KEY;
 
-    LET rs RESULTSET := (SELECT SCENARIO_ID, PERIOD_KEY, SCENARIO_TYPE FROM {{ schema_app }}.TMP_STAT_RECALC ORDER BY SCENARIO_ID, PERIOD_KEY);
+    LET rs RESULTSET := (SELECT SCENARIO_ID, PERIOD_KEY, SCENARIO_TYPE FROM APP.TMP_STAT_RECALC ORDER BY SCENARIO_ID, PERIOD_KEY);
     LET cur CURSOR FOR rs;
     FOR rec IN cur DO
         v_sid  := rec.SCENARIO_ID;
         v_pk   := rec.PERIOD_KEY;
         v_type := rec.SCENARIO_TYPE;
         IF (v_type = 'ACTUAL') THEN
-            CALL {{ schema_app }}.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_sid, :v_pk, NULL, 'Statutory parameters changed');
+            CALL APP.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_sid, :v_pk, NULL, 'Statutory parameters changed');
         END IF;
-        CALL {{ schema_app }}.SP_CALC_PERIOD(:P_USER_EMAIL, :v_sid, :v_pk);
+        CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :v_sid, :v_pk);
     END FOR;
 
     COMMIT;
-    DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_PARAM;
-    DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_RECALC;
+    DROP TABLE IF EXISTS APP.TMP_STAT_PARAM;
+    DROP TABLE IF EXISTS APP.TMP_STAT_RECALC;
     RETURN OBJECT_CONSTRUCT('status', 'OK', 'message', v_changed || ' parameter(s) saved from ' || P_PERIOD_KEY || '; ' || v_recalc || ' month(s) recalculated.');
 EXCEPTION
     WHEN OTHER THEN
         ROLLBACK;
-        DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_PARAM;
-        DROP TABLE IF EXISTS {{ schema_app }}.TMP_STAT_RECALC;
+        DROP TABLE IF EXISTS APP.TMP_STAT_PARAM;
+        DROP TABLE IF EXISTS APP.TMP_STAT_RECALC;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', SQLERRM, 'code', SQLCODE);
 END;
 $$;

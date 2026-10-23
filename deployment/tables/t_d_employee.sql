@@ -4,7 +4,7 @@ USE DATABASE {{ database }};
 
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.2).
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_EMPLOYEE (
+CREATE TABLE IF NOT EXISTS APP.T_D_EMPLOYEE (
     EMPLOYEE_ID           INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key (no special ID ranges)',
     RESOURCE_CODE         TEXT      NOT NULL COMMENT 'Employee code shown to users, e.g. HR-KH-006; unique',
     FIRST_NAME            TEXT               COMMENT 'First name',
@@ -26,5 +26,5 @@ CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_EMPLOYEE (
     UPDATE_BY             TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
     CONSTRAINT PK_T_D_EMPLOYEE PRIMARY KEY (EMPLOYEE_ID),
     CONSTRAINT UQ_T_D_EMPLOYEE_RESOURCE UNIQUE (RESOURCE_CODE),
-    CONSTRAINT FK_EMPLOYEE_PLANNED_SCENARIO FOREIGN KEY (PLANNED_SCENARIO_ID) REFERENCES {{ schema_app }}.T_D_SCENARIO (SCENARIO_ID)
+    CONSTRAINT FK_EMPLOYEE_PLANNED_SCENARIO FOREIGN KEY (PLANNED_SCENARIO_ID) REFERENCES APP.T_D_SCENARIO (SCENARIO_ID)
 ) COMMENT = 'Employee master: identity and banking details that rarely change. Pay-related terms live in T_D_EMPLOYEE_CONTRACT.';

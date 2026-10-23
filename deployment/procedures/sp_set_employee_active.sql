@@ -34,7 +34,7 @@ USE DATABASE {{ database }};
    If the open month changes, its approvals reset and it is recalculated.
    Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ schema_app }}.SP_SET_EMPLOYEE_ACTIVE(P_USER_EMAIL TEXT, P_EMPLOYEE_ID INT, P_IS_ACTIVE BOOLEAN)
+CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_ACTIVE(P_USER_EMAIL TEXT, P_EMPLOYEE_ID INT, P_IS_ACTIVE BOOLEAN)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -55,7 +55,7 @@ DECLARE
     v_reason     TEXT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ schema_app }}.T_D_APP_USER u
+    FROM APP.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
@@ -66,7 +66,7 @@ BEGIN
     END IF;
 
     SELECT COUNT(*), MAX(IS_ACTIVE), MAX(IS_PLANNED) INTO :v_exists, :v_current, :v_planned
-    FROM {{ schema_app }}.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :P_EMPLOYEE_ID;
+    FROM APP.T_D_EMPLOYEE WHERE EMPLOYEE_ID = :P_EMPLOYEE_ID;
     IF (v_exists = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'Employee ' || P_EMPLOYEE_ID || ' does not exist.');
     END IF;
@@ -80,25 +80,25 @@ BEGIN
     SELECT MAX(s.SCENARIO_ID), MAX(IFF(x.PERIOD_STATUS IN ('OPEN', 'IN_APPROVAL'), x.PERIOD_KEY, NULL)),
            MAX(IFF(x.PERIOD_STATUS = 'FINALIZED', x.PERIOD_KEY, NULL))
       INTO :v_actual, :v_open, :v_last_final
-    FROM {{ schema_app }}.T_D_SCENARIO s
-    LEFT JOIN {{ schema_app }}.T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID
+    FROM APP.T_D_SCENARIO s
+    LEFT JOIN APP.T_F_SCENARIO_PERIOD x ON x.SCENARIO_ID = s.SCENARIO_ID
     WHERE s.SCENARIO_TYPE = 'ACTUAL';
 
     IF (v_open IS NOT NULL) THEN
-        SELECT COUNT(*) INTO :v_contract FROM {{ schema_app }}.T_D_EMPLOYEE_CONTRACT
+        SELECT COUNT(*) INTO :v_contract FROM APP.T_D_EMPLOYEE_CONTRACT
         WHERE EMPLOYEE_ID = :P_EMPLOYEE_ID
           AND :v_open BETWEEN VALID_FROM_PERIOD_KEY AND COALESCE(VALID_TO_PERIOD_KEY, 999912);
     END IF;
 
     BEGIN TRANSACTION;
 
-    UPDATE {{ schema_app }}.T_D_EMPLOYEE
+    UPDATE APP.T_D_EMPLOYEE
     SET IS_ACTIVE = :P_IS_ACTIVE, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     WHERE EMPLOYEE_ID = :P_EMPLOYEE_ID;
 
     -- The open month changes immediately
     IF (v_open IS NOT NULL AND (NOT P_IS_ACTIVE OR v_contract > 0)) THEN
-        MERGE INTO {{ schema_app }}.T_F_PAYROLL_INPUT t
+        MERGE INTO APP.T_F_PAYROLL_INPUT t
         USING (SELECT :v_actual AS SCENARIO_ID, :v_open AS PERIOD_KEY, :P_EMPLOYEE_ID AS EMPLOYEE_ID) s
            ON t.SCENARIO_ID = s.SCENARIO_ID AND t.PERIOD_KEY = s.PERIOD_KEY AND t.EMPLOYEE_ID = s.EMPLOYEE_ID
         WHEN MATCHED THEN UPDATE SET INCLUDE_IN_PAYROLL = :P_IS_ACTIVE, UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
@@ -107,11 +107,11 @@ BEGIN
 
         v_ids := '[' || P_EMPLOYEE_ID || ']';
         v_reason := IFF(P_IS_ACTIVE, 'Employee reactivated', 'Employee deactivated');
-        CALL {{ schema_app }}.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :v_open, :v_ids, :v_reason);
-        CALL {{ schema_app }}.SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :v_open);
+        CALL APP.SP_RESET_APPROVALS(:P_USER_EMAIL, :v_actual, :v_open, :v_ids, :v_reason);
+        CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :v_actual, :v_open);
     END IF;
 
-    INSERT INTO {{ schema_app }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_D_EMPLOYEE', OBJECT_CONSTRUCT('EMPLOYEE_ID', :P_EMPLOYEE_ID), 'UPDATE', OBJECT_CONSTRUCT('IS_ACTIVE', :v_current), OBJECT_CONSTRUCT('IS_ACTIVE', :P_IS_ACTIVE, 'FROM_PERIOD_KEY', :v_open), :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL;
 
     COMMIT;

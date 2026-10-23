@@ -19,7 +19,7 @@ USE DATABASE {{ database }};
    2026-10-19  Own file for DLSync (was in R__views_core.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_APPROVAL_EVENT
+CREATE OR REPLACE VIEW RPT.V_F_APPROVAL_EVENT
 COPY GRANTS
 COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log. PERIOD_KEY 0 = a whole budget.'
 AS
@@ -32,5 +32,5 @@ SELECT
     c.CHANGED_BY                      AS ACTED_BY,
     c.INSERT_DATE                     AS ACTED_AT,
     c.NEW_VALUES:COMMENT::TEXT        AS ACTION_COMMENT
-FROM {{ schema_app }}.T_F_CHANGE_LOG c
+FROM APP.T_F_CHANGE_LOG c
 WHERE c.TABLE_NAME = 'APP.T_F_APPROVAL';

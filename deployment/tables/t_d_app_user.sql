@@ -5,7 +5,7 @@ USE DATABASE {{ database }};
 -- 2026-10-21  Table name qualified with the app() schema macro like the other table files (was unqualified).
 --             Reference row added: the payslip flow's system user (below).
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_APP_USER (
+CREATE TABLE IF NOT EXISTS APP.T_D_APP_USER (
     USER_EMAIL     TEXT      NOT NULL COMMENT 'Login email of the app user',
     DISPLAY_NAME   TEXT      NOT NULL COMMENT 'Name shown on approvals and audit screens',
     IS_ACTIVE      BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Inactive users cannot act in the app',
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_APP_USER (
 -- 2026-10-21  Reference row: the payslip flow's system user (P_USER_EMAIL of SP_START_PAYSLIP_RUN and
 --             SP_FINISH_PAYSLIP_RUN). No role: it cannot approve and gets no payroll reminders. Not a real
 --             mailbox. Inserted once, only while missing; a later change by hand (e.g. deactivating) is kept.
-MERGE INTO {{ schema_app }}.T_D_APP_USER t
+MERGE INTO APP.T_D_APP_USER t
 USING (SELECT 'payslip-flow@system' AS USER_EMAIL, 'Payslip flow' AS DISPLAY_NAME) s
    ON t.USER_EMAIL = s.USER_EMAIL
 WHEN NOT MATCHED THEN INSERT (USER_EMAIL, DISPLAY_NAME, IS_ACTIVE, ROLE_CODE)

@@ -17,7 +17,7 @@ USE DATABASE {{ database }};
    2026-10-19  Own file for DLSync (was in R__views_core.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_COST_ALLOCATION
+CREATE OR REPLACE VIEW RPT.V_F_COST_ALLOCATION
 COPY GRANTS
 COMMENT = 'Grain: one row per scenario x period x employee x fund x department. Employee gross pay and employer cost (V_F_PAYROLL_SUMMARY) x fund share x department share. Employees without both a fund and a department split have no rows. Replaces the T_F_COST_ALLOCATION table.'
 AS
@@ -31,8 +31,8 @@ SELECT
     (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100)                                     AS ALLOCATION_SHARE,
     ROUND(s.GROSS_PAY_USD     * (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100), 2)     AS GROSS_PAY_USD,
     ROUND(s.EMPLOYER_COST_USD * (f.SHARE_PCT / 100) * (d.SHARE_PCT / 100), 2)     AS EMPLOYER_COST_USD
-FROM {{ schema_rpt }}.V_F_PAYROLL_SUMMARY s
-JOIN {{ schema_app }}.T_F_FUND_ALLOCATION f
+FROM RPT.V_F_PAYROLL_SUMMARY s
+JOIN APP.T_F_FUND_ALLOCATION f
   ON f.SCENARIO_ID = s.SCENARIO_ID AND f.PERIOD_KEY = s.PERIOD_KEY AND f.EMPLOYEE_ID = s.EMPLOYEE_ID
-JOIN {{ schema_app }}.T_F_DEPARTMENT_ALLOCATION d
+JOIN APP.T_F_DEPARTMENT_ALLOCATION d
   ON d.SCENARIO_ID = s.SCENARIO_ID AND d.PERIOD_KEY = s.PERIOD_KEY AND d.EMPLOYEE_ID = s.EMPLOYEE_ID;

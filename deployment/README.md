@@ -6,7 +6,7 @@ not part of these scripts.
 
 ```
 deployment/
-├── config.yml        per-environment values: database, schemas, owner role
+├── config.yml        per-environment values: database and owner role
 ├── deploy.py         renders the {{ }} placeholders from config.yml and runs the scripts in order
 ├── tables/           21 scripts   (T_*)     run first
 ├── views/            30 scripts   (V_*)     run second
@@ -17,7 +17,7 @@ deployment/
 - One object per file; the file name is the object name in lower case (`t_d_entity.sql`).
 - Starts with an optional `-- depends_on: T_A, T_B` line, then `USE ROLE` and `USE DATABASE` (from `config.yml`). The warehouse comes from the connection / user default.
   `USE ROLE` is the owner role, so every object is created by, and owned by, that role.
-- The only placeholders are `{{ schema_app }}` (tables, procedures), `{{ schema_rpt }}` (views), `{{ database }}`, `{{ role_owner }}`.
+- Schemas are written directly: `APP` (tables, procedures) and `RPT` (views). The only placeholders are `{{ database }}` and `{{ role_owner }}`.
 - **Tables** are never replaced: `CREATE TABLE IF NOT EXISTS`. A new column is an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
   line in the same file. Renames and drops are written by hand.
 - **Views and procedures** are `CREATE OR REPLACE ... COPY GRANTS`, so existing grants survive a redeploy.
@@ -41,8 +41,8 @@ RUN = False      # False = dry run: only prints the rendered SQL.  True = execut
 ```
 
 1. **Dry run.** Set `ENV` to `uat` or `prod`, keep `RUN = False`, and press Run. The Output tab prints every script with the
-   values from `config.yml` filled in (database, schemas, owner role), in deploy order. Nothing is sent to Snowflake.
-2. **Check the output.** Look at the schema and database names and the `USE ROLE` line for the environment you chose.
+   values from `config.yml` filled in (database, owner role), in deploy order. Nothing is sent to Snowflake.
+2. **Check the output.** Look at the database name and the `USE ROLE` line for the environment you chose.
 3. **Deploy.** Set `RUN = True` and press Run again. Each statement is printed as it runs, tables first, then views, then
    procedures. The run stops at the first error.
 
