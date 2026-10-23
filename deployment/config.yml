@@ -1,6 +1,6 @@
 # Per-environment values for the scripts in tables/, views/ and procedures/ (rendered by deploy.py: {{ key }} -> value).
 # Add an environment = add a block with the same keys. Identifiers only, no secrets.
-# The database and the schemas already exist; the role must own the schemas (it creates and replaces the objects).
+# The database and the schemas are provisioned by the Snowflake Administrator; the owner role must own the schemas (it creates and replaces the objects).
 uat:
   database: DEV_PAYROLL_DB
   schema_app: APP_UAT                         # tables + procedures

@@ -1,7 +1,8 @@
 # EuroCham Payroll - deployment scripts
 
 Plain SQL scripts for the tables, views and procedures of the EuroCham payroll app. They create or update objects in
-**existing** schemas: the database, the schemas, the roles and the grants are created elsewhere (Snowflake setup), not here.
+**existing** schemas. The database, the schemas, the roles and the grants are provisioned by the Snowflake Administrator and are
+not part of these scripts.
 
 ```
 deployment/
@@ -28,23 +29,31 @@ dependencies first (needed for table foreign keys and for views that read other 
 checks the list against the folders and stops if a script is not listed, is listed but missing, is listed twice, or comes
 before a script named in its own `-- depends_on:` line.
 
-## Running
-```bash
-python deploy.py uat                          # print all rendered scripts in order, nothing runs
-python deploy.py uat tables                   # one folder (or one script: python deploy.py uat t_d_entity)
-python deploy.py uat --run -c <connection>    # run them with the Snowflake CLI
-python deploy.py prod --run -c <connection>   # prod: fill in the <PROD_*> values in config.yml first
+## Running (in Snowsight)
+> **Note:** Before the first run, configure the `prod` block in `config.yml`.
+
+Open this folder in a Snowsight Workspace and open `deploy.py`. The three settings at the top decide what happens:
+
+```python
+ENV = 'uat'      # which block of config.yml to use: 'uat' or 'prod'
+ONLY = None      # None = all scripts in DEPLOY_ORDER, or a subset, e.g. ['views'] or ['t_d_entity']
+RUN = False      # False = dry run: only prints the rendered SQL.  True = executes it
 ```
-Needs `pip install pyyaml`. In Snowsight (Workspace with this folder uploaded), set `ENV`, `ONLY`, `RUN` at the top of `deploy.py`
-and press Run. `RUN = False` only prints.
+
+1. **Dry run.** Set `ENV` to `uat` or `prod`, keep `RUN = False`, and press Run. The Output tab prints every script with the
+   values from `config.yml` filled in (database, schemas, owner role), in deploy order. Nothing is sent to Snowflake.
+2. **Check the output.** Look at the schema and database names and the `USE ROLE` line for the environment you chose.
+3. **Deploy.** Set `RUN = True` and press Run again. Each statement is printed as it runs, tables first, then views, then
+   procedures. The run stops at the first error.
 
 ## Adding or changing an object
 1. Edit or add the file in the right folder; list what it uses in `-- depends_on:`, and add the file to `DEPLOY_ORDER` in `deploy.py` (after what it depends on).
 2. Add new columns as `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` lines in the table's own script.
 3. Add a History line at the top of the file for the change.
-4. `python deploy.py uat <script>` to check the SQL, then `--run`.
+4. In `deploy.py` set `ONLY = ['<script name>']` and `RUN = False` to check the SQL, then `RUN = True` to deploy it.
 
 ## Not included
-- Database, schemas, roles, users, integrations: created by the Snowflake setup scripts.
-- Grants to the app role: a new view or procedure may need one; the setup scripts hold the future grants for the schemas.
+- Database, schemas, roles, users and integrations: provisioned and maintained by the Snowflake Administrator.
+- Grants to the application role: managed by the Snowflake Administrator. A new view or procedure that needs a grant
+  that the schema's existing grants do not already cover must be requested from the Snowflake Administrator.
 - A record of what has run (no history table): the scripts are safe to repeat instead.
