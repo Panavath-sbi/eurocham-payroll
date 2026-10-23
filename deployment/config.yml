@@ -6,5 +6,5 @@ uat:
   database: DEV_PAYROLL_DB
   role_owner: SF_APA_PAYROLL-DBA              # owner of the objects
 prod:
-  database: <PROD_DB>
-  role_owner: <PROD_DEPLOY_ROLE>
+  database: EUROCHAM_PAYROLL_DB
+  role_owner: EUROCHAM_PAYROLL-DBA              # owner of the objects
