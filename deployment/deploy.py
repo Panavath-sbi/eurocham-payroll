@@ -20,9 +20,9 @@ import tempfile
 
 import yaml
 
-ENV = 'uat'                           # Snowsight: a block in config.yml
+ENV = 'prod'                          # Change this to 'prod' when deploying to production
 ONLY = None                           # Snowsight: None = everything, or e.g. ['views'] / ['t_d_entity']
-RUN = False                           # Snowsight: False = print only, True = execute
+RUN = True                            # Snowsight: False = print only(dry-run), True = execute (run all the objects)
 
 HERE = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 DEPLOY_ORDER = [                      # run order; a new script is added here (dependencies first)
