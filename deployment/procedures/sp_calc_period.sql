@@ -15,6 +15,8 @@ USE DATABASE {{ database }};
                no longer stored (RPT.V_F_COST_ALLOCATION calculates it); CORE -> APP.
    2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
                keeps the app's USAGE grant when the procedure is replaced.
+   2026-10-26  Fix: no seniority for FDC (fixed-duration) contracts; empty contract type
+               counts as UDC.
 
    CONVENTIONS
    -----------
@@ -35,7 +37,7 @@ USE DATABASE {{ database }};
    Overtime            = daily rate x overtime days x OVERTIME_MULTIPLIER
    Outstanding leave   = daily rate x outstanding days
    Seniority (Jun/Dec) = average (salary + bonus) over the half-year / working days
-                         x SENIORITY_DAYS_PER_PAYMENT
+                         x SENIORITY_DAYS_PER_PAYMENT; UDC contracts only (none for FDC)
    NSSF base (KHR)     = (salary + seniority) x NSSF rate, between floor and cap
    Taxable base (KHR)  = taxable earnings - seniority exemption - employee NSSF
    Resident tax        = bracket rate x (taxable base - dependant relief) - deduction
@@ -128,7 +130,7 @@ BEGIN
     ),
     terms AS (   -- employee terms: contracts for ACTUAL, scenario employees otherwise
         SELECT c.EMPLOYEE_ID, c.CONTRACT_ID AS VERSION_KEY, c.ENTITY_CODE,
-               c.MONTHLY_SALARY_USD AS SALARY, c.TAX_STATUS,
+               c.MONTHLY_SALARY_USD AS SALARY, c.TAX_STATUS, c.CONTRACT_TYPE,
                c.DEPENDANT_CHILDREN + c.DEPENDANT_SPOUSE AS DEPENDANTS,
                c.INSURANCE_USD, c.VISA_USD, c.WORK_PERMIT_USD, c.FRINGE_BENEFIT_USD
         FROM APP.T_D_EMPLOYEE_CONTRACT c
@@ -138,7 +140,7 @@ BEGIN
         SELECT se.EMPLOYEE_ID, COALESCE(se.SOURCE_CONTRACT_ID, -1), se.ENTITY_CODE,
                IFF(se.REVALUATION_PERIOD_KEY IS NOT NULL AND sp.PERIOD_KEY >= se.REVALUATION_PERIOD_KEY,
                    se.FINAL_SALARY_USD, se.MONTHLY_SALARY_USD),
-               se.TAX_STATUS, se.DEPENDANT_CHILDREN + se.DEPENDANT_SPOUSE,
+               se.TAX_STATUS, se.CONTRACT_TYPE, se.DEPENDANT_CHILDREN + se.DEPENDANT_SPOUSE,
                se.INSURANCE_USD, se.VISA_USD, se.WORK_PERMIT_USD, se.FRINGE_BENEFIT_USD
         FROM APP.T_D_SCENARIO_EMPLOYEE se
         JOIN sp ON sp.SCENARIO_ID = se.SCENARIO_ID AND sp.SCENARIO_TYPE <> 'ACTUAL'
@@ -192,7 +194,7 @@ BEGIN
             DAILY * OT_DAYS * prm.OT_MULT                       AS OT,
             DAILY * OUT_DAYS                                    AS OUTST,
             i.BONUS_USD                                         AS BONUS,
-            IFF(sp.IS_SENIORITY_MONTH,
+            IFF(sp.IS_SENIORITY_MONTH AND COALESCE(t.CONTRACT_TYPE, 'UDC') <> 'FDC',
                 (COALESCE(h.PRIOR_USD, 0) + SAL + BONUS) / (COALESCE(h.PRIOR_MONTHS, 0) + 1)
                     / NULLIF(WD, 0) * prm.SEN_DAYS,
                 0)                                              AS SEN,
