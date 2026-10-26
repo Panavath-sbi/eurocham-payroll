@@ -1,13 +1,10 @@
 # Per-environment values for the scripts in tables/, views/ and procedures/ (rendered by deploy.py: {{ key }} -> value).
 # Add an environment = add a block with the same keys. Identifiers only, no secrets.
+# Schemas are fixed in the scripts: APP (tables, procedures) and RPT (views).
 # The database and the schemas are provisioned by the Snowflake Administrator; the owner role must own the schemas (it creates and replaces the objects).
 uat:
   database: DEV_PAYROLL_DB
-  schema_app: APP_UAT                         # tables + procedures
-  schema_rpt: RPT_UAT                         # views
   role_owner: SF_APA_PAYROLL-DBA              # owner of the objects
 prod:
-  database: <PROD_DB>
-  schema_app: APP
-  schema_rpt: RPT
-  role_owner: <PROD_DEPLOY_ROLE>
+  database: EUROCHAM_PAYROLL_DB
+  role_owner: EUROCHAM_PAYROLL-DBA              # owner of the objects

@@ -28,7 +28,7 @@ USE DATABASE {{ database }};
    3. if none has started: the version that starts first (future start).
    Versions never overlap, so among the versions already started the latest one is the
    version in force when there is one: rules 1 and 2 are the same ordering. */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_D_EMPLOYEE
+CREATE OR REPLACE VIEW RPT.V_D_EMPLOYEE
 COPY GRANTS
 COMMENT = 'Employee dimension, SCD Type 2: one row per contract version. IS_CURRENT_VERSION marks one version per employee (in force this calendar month, else the latest started, else the first upcoming). Includes the employee''s bank details.'
 AS
@@ -77,5 +77,5 @@ SELECT
     c.VISA_USD,
     c.WORK_PERMIT_USD,
     c.FRINGE_BENEFIT_USD
-FROM {{ schema_app }}.T_D_EMPLOYEE e
-JOIN {{ schema_app }}.T_D_EMPLOYEE_CONTRACT c ON c.EMPLOYEE_ID = e.EMPLOYEE_ID;
+FROM APP.T_D_EMPLOYEE e
+JOIN APP.T_D_EMPLOYEE_CONTRACT c ON c.EMPLOYEE_ID = e.EMPLOYEE_ID;

@@ -3,7 +3,7 @@ USE DATABASE {{ database }};
 
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created by V1.0.1; moved to APP by V1.5.0).
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
-CREATE TABLE IF NOT EXISTS {{ schema_app }}.T_D_FUND (
+CREATE TABLE IF NOT EXISTS APP.T_D_FUND (
     FUND_CODE     TEXT      NOT NULL COMMENT 'Fund code, e.g. ECCC, CCIFC, EU_GATE',
     FUND_NAME     TEXT      NOT NULL COMMENT 'Fund display name',
     IS_ACTIVE     BOOLEAN   NOT NULL DEFAULT TRUE COMMENT 'Whether new allocations can use this fund',
@@ -21,9 +21,9 @@ EXECUTE IMMEDIATE $$
 DECLARE
     n INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO :n FROM {{ schema_app }}.T_D_FUND;
+    SELECT COUNT(*) INTO :n FROM APP.T_D_FUND;
     IF (n = 0) THEN
-        INSERT INTO {{ schema_app }}.T_D_FUND (FUND_CODE, FUND_NAME) VALUES
+        INSERT INTO APP.T_D_FUND (FUND_CODE, FUND_NAME) VALUES
             ('ECCC',    'ECCC'),
             ('CCIFC',   'CCIFC'),
             ('EU_GATE', 'EU Gate');

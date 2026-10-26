@@ -30,7 +30,7 @@ USE DATABASE {{ database }};
    A FAILED month is not retried by the flow: an admin deletes the row (the whole month
    is sent again) or sets it to SENT by hand.
    ===================================================================================== */
-CREATE OR REPLACE PROCEDURE {{ schema_app }}.SP_FINISH_PAYSLIP_RUN(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_RUN_STATUS TEXT, P_MESSAGE TEXT DEFAULT NULL)
+CREATE OR REPLACE PROCEDURE APP.SP_FINISH_PAYSLIP_RUN(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_RUN_STATUS TEXT, P_MESSAGE TEXT DEFAULT NULL)
 COPY GRANTS
 RETURNS VARIANT
 LANGUAGE SQL
@@ -45,7 +45,7 @@ DECLARE
     v_message TEXT;
 BEGIN
     SELECT COUNT(*) INTO :v_allowed
-    FROM {{ schema_app }}.T_D_APP_USER u
+    FROM APP.T_D_APP_USER u
     WHERE u.USER_EMAIL = :P_USER_EMAIL AND u.IS_ACTIVE;
     IF (v_allowed = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'You are not an active app user. Ask a developer to add you in Snowflake.');
@@ -61,7 +61,7 @@ BEGIN
     END IF;
 
     SELECT MAX(RUN_STATUS) INTO :v_run
-    FROM {{ schema_app }}.T_F_PAYSLIP_RUN WHERE PERIOD_KEY = :P_PERIOD_KEY;
+    FROM APP.T_F_PAYSLIP_RUN WHERE PERIOD_KEY = :P_PERIOD_KEY;
     IF (v_run IS NULL) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'No payslip run of ' || P_PERIOD_KEY || ' was started.');
     END IF;
@@ -71,12 +71,12 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    UPDATE {{ schema_app }}.T_F_PAYSLIP_RUN
+    UPDATE APP.T_F_PAYSLIP_RUN
     SET RUN_STATUS = :v_status, FINISHED_AT = CURRENT_TIMESTAMP, RUN_MESSAGE = :v_message,
         UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
     WHERE PERIOD_KEY = :P_PERIOD_KEY;
 
-    INSERT INTO {{ schema_app }}.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
+    INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_F_PAYSLIP_RUN',
            OBJECT_CONSTRUCT('PERIOD_KEY', :P_PERIOD_KEY),
            'UPDATE',

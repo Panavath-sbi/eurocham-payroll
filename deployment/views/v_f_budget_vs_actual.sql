@@ -12,21 +12,21 @@ USE DATABASE {{ database }};
    2026-10-19  Own file for DLSync (was in R__views_rpt.sql): names qualified with ${DB},
                COPY GRANTS keeps the app's SELECT grant when the view is replaced.
    ===================================================================================== */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_BUDGET_VS_ACTUAL
+CREATE OR REPLACE VIEW RPT.V_F_BUDGET_VS_ACTUAL
 COPY GRANTS
 COMMENT = 'Per period and entity: official budget vs latest forecast vs actual employer cost and gross pay.'
 AS
 WITH sources AS (
     SELECT SCENARIO_ID, 'ACTUAL' AS SOURCE
-    FROM {{ schema_app }}.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL'
+    FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'ACTUAL'
     UNION ALL
     SELECT SCENARIO_ID, 'BUDGET'
-    FROM {{ schema_app }}.T_D_SCENARIO WHERE SCENARIO_TYPE = 'BUDGET' AND IS_OFFICIAL
+    FROM APP.T_D_SCENARIO WHERE SCENARIO_TYPE = 'BUDGET' AND IS_OFFICIAL
     UNION ALL
     SELECT SCENARIO_ID, 'FORECAST'
     FROM (
         SELECT SCENARIO_ID
-        FROM {{ schema_app }}.T_D_SCENARIO
+        FROM APP.T_D_SCENARIO
         WHERE SCENARIO_TYPE = 'FORECAST' AND SCENARIO_STATUS <> 'ARCHIVED'
         QUALIFY ROW_NUMBER() OVER (PARTITION BY FISCAL_YEAR
                                    ORDER BY FORECAST_AS_OF_PERIOD_KEY DESC, SCENARIO_ID DESC) = 1
@@ -44,7 +44,7 @@ SELECT
     SUM(IFF(src.SOURCE = 'BUDGET',   f.GROSS_PAY_USD, 0))     AS BUDGET_GROSS_PAY_USD,
     SUM(IFF(src.SOURCE = 'FORECAST', f.GROSS_PAY_USD, 0))     AS FORECAST_GROSS_PAY_USD,
     SUM(IFF(src.SOURCE = 'ACTUAL',   f.GROSS_PAY_USD, 0))     AS ACTUAL_GROSS_PAY_USD
-FROM {{ schema_rpt }}.V_F_PAYROLL_SUMMARY f
+FROM RPT.V_F_PAYROLL_SUMMARY f
 JOIN sources src       ON src.SCENARIO_ID = f.SCENARIO_ID
-JOIN {{ schema_app }}.T_D_PERIOD p ON p.PERIOD_KEY = f.PERIOD_KEY
+JOIN APP.T_D_PERIOD p ON p.PERIOD_KEY = f.PERIOD_KEY
 GROUP BY p.YEAR, f.PERIOD_KEY, p.PERIOD_LABEL, f.ENTITY_CODE;

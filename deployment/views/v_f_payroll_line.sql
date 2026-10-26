@@ -24,7 +24,7 @@ USE DATABASE {{ database }};
 /* -------------------------------------------------------------------------------------
    Pay lines by component: cards that need one component (bonus, seniority, ToS ...)
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_F_PAYROLL_LINE (
+CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_LINE (
     SCENARIO_ID, PERIOD_KEY, EMPLOYEE_ID, PAY_COMPONENT_CODE, PAY_COMPONENT_NAME, CATEGORY,
     DISPLAY_ORDER, ENTITY_CODE, QUANTITY, RATE, AMOUNT_USD, AMOUNT_KHR, FX_RATE_APPLIED
 )
@@ -45,5 +45,5 @@ SELECT
     l.AMOUNT_USD,
     l.AMOUNT_KHR,
     l.FX_RATE_APPLIED
-FROM {{ schema_app }}.T_F_PAYROLL_LINE l
-JOIN {{ schema_app }}.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE;
+FROM APP.T_F_PAYROLL_LINE l
+JOIN APP.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE;

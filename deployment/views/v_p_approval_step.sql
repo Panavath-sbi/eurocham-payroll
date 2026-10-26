@@ -24,7 +24,7 @@ USE DATABASE {{ database }};
 /* -------------------------------------------------------------------------------------
    Approval steps in force this month, with their approver: Settings page
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW {{ schema_rpt }}.V_P_APPROVAL_STEP (
+CREATE OR REPLACE VIEW RPT.V_P_APPROVAL_STEP (
     STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, MANAGES_EMPLOYEE_CHECKS, VALID_FROM_PERIOD_KEY,
     APPROVER_EMAIL COMMENT 'Active user holding the step''s role (several separated by ; if the data allows it)',
     APPROVER_NAME  COMMENT 'Display name of that user'
@@ -41,8 +41,8 @@ SELECT
     st.VALID_FROM_PERIOD_KEY,
     LISTAGG(u.USER_EMAIL, '; ')   WITHIN GROUP (ORDER BY u.USER_EMAIL),
     LISTAGG(u.DISPLAY_NAME, '; ') WITHIN GROUP (ORDER BY u.USER_EMAIL)
-FROM {{ schema_app }}.T_P_APPROVAL_STEP st
-LEFT JOIN {{ schema_app }}.T_D_APP_USER u ON u.ROLE_CODE = st.APPROVER_ROLE AND u.IS_ACTIVE
+FROM APP.T_P_APPROVAL_STEP st
+LEFT JOIN APP.T_D_APP_USER u ON u.ROLE_CODE = st.APPROVER_ROLE AND u.IS_ACTIVE
 WHERE st.IS_ACTIVE
   AND TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM'))
       BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
