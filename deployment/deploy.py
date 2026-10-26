@@ -54,7 +54,6 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'tables/t_f_payroll_input.sql',
     'tables/t_f_payroll_line.sql',
     'tables/t_d_scenario_employee.sql',
-    'tables/t_z_deploy_test.sql',               # TEST OBJECT (TEST_CASES.md); remove after testing
     # --- views ---
     'views/v_d_app_user.sql',
     'views/v_d_employee.sql',
@@ -86,7 +85,7 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'views/v_f_scenario_summary.sql',
     'views/v_f_dashboard_month.sql',
     'views/v_f_cost_center_summary.sql',
-    'views/v_z_deploy_test.sql',                # TEST OBJECT (TEST_CASES.md); remove after testing
+    
     # --- procedures ---
     'procedures/sp_approve_step.sql',
     'procedures/sp_calc_period.sql',

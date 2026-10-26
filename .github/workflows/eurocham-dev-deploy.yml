@@ -28,8 +28,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0                  # full history: the log records the scripts changed since the last deployment
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install snowflake-snowpark-python pyyaml
-      - run: python deployment/deploy.py uat $ONLY --run
+      - run: pip install --quiet snowflake-snowpark-python pyyaml
+      - name: Check the Snowflake connection
+        run: |
+          python - <<'EOF'
+          import os, sys
+          sys.path.insert(0, 'deployment')
+          secrets = {'SNOWFLAKE_ACCOUNT': 'SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USER': 'SNOWFLAKE_USER', 'SNOWFLAKE_PASSWORD': 'SNOWFLAKE_PAT'}
+          if missing := [s for v, s in secrets.items() if not os.environ.get(v)]:
+              sys.exit(f'CONNECTION FAILED: GitHub secret(s) not set: {", ".join(missing)}')
+          import deploy
+          try:
+              user, role, wh, account = deploy.get_session().sql(
+                  'SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_ACCOUNT()').collect()[0]
+          except Exception as e:
+              sys.exit(f'CONNECTION FAILED: {deploy.first_line(e)}')
+          print(f'CONNECTED to Snowflake account {account} as {user} (role {role}, warehouse {wh or "none - set a default warehouse"})')
+          EOF
+      - name: Deploy to uat and verify
+        run: python deployment/deploy.py uat $ONLY --run
