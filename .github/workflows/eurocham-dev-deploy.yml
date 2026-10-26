@@ -1,0 +1,35 @@
+# Deploys deployment/ (EuroCham tables, views, procedures) to uat on every push to eurocham-dev, then verifies it.
+# eurocham-dev holds exactly what runs in uat. Every push deploys all scripts (each is safe to run again).
+# "Run workflow" with `only` deploys just the named scripts.
+# Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
+name: EuroCham deploy (eurocham-dev -> uat)
+
+on:
+  push:
+    branches: [eurocham-dev]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Scripts to deploy, space-separated (e.g. t_d_employee v_d_employee). Empty = all'
+        required: false
+
+concurrency: eurocham-deploy-uat          # one deployment at a time against uat
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: uat
+    env:
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}      # PAT is accepted as the password
+      ONLY:               ${{ inputs.only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install snowflake-snowpark-python pyyaml
+      - run: python deployment/deploy.py uat $ONLY
