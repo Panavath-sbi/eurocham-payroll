@@ -2,9 +2,10 @@ USE ROLE "{{ role_owner }}";
 USE DATABASE {{ database }};
 
 -- 2026-10-26  Initial version: deployment log written by deploy.py (one row per run with RUN / --run).
+-- 2026-10-26  DEPLOY_ID in run order (IDENTITY ... ORDER) for new tables; a table created earlier keeps NOORDER (Snowflake cannot switch it back), so read the log ORDER BY FINISHED_AT.
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
 CREATE TABLE IF NOT EXISTS APP.T_F_DEPLOY_LOG (
-    DEPLOY_ID             INT           IDENTITY(1,1) NOT NULL COMMENT 'Run number',
+    DEPLOY_ID             INT           IDENTITY(1,1) ORDER NOT NULL COMMENT 'Run number (in run order)',
     ENV                   TEXT          NOT NULL COMMENT 'Environment block of config.yml: uat or prod',
     STATUS                TEXT          NOT NULL COMMENT 'CONFIRMED, NOT CONFIRMED (verification found problems) or FAILED (a statement failed)',
     SCRIPTS_RUN           INT                    COMMENT 'Scripts executed: all of DEPLOY_ORDER, or the ONLY subset',

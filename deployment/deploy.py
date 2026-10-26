@@ -187,7 +187,8 @@ def get_session(connection=None):
 
 
 def first_line(e):
-    return (str(e).strip().splitlines() or [type(e).__name__])[0][:200]
+    """The error on one line, max 300 characters (Snowflake puts the detail on the line after 'SQL compilation error:')."""
+    return ' '.join(str(e).split())[:300] or type(e).__name__
 
 
 def load_cfg(env):
@@ -253,7 +254,7 @@ def changed_scripts(session, db, env):
     import subprocess
     try:
         rows = session.sql(f"SELECT GIT_COMMIT FROM {db}.APP.T_F_DEPLOY_LOG WHERE ENV = ? AND STATUS = 'CONFIRMED' "
-                           'AND GIT_COMMIT IS NOT NULL ORDER BY DEPLOY_ID DESC LIMIT 1', params=[env]).collect()
+                           'AND GIT_COMMIT IS NOT NULL ORDER BY FINISHED_AT DESC LIMIT 1', params=[env]).collect()
         if not rows:
             return None                                              # first logged deployment of this env
         out = subprocess.run(['git', '-C', HERE, 'diff', '--name-only', rows[0][0], 'HEAD', '--', '.'],
