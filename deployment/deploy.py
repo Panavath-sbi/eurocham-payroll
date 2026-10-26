@@ -32,6 +32,7 @@ SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP'}      # fixed in 
 HERE = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 DEPLOY_ORDER = [                      # run order; a new script is added here (dependencies first)
     # --- tables ---
+    'tables/t_f_deploy_log.sql',                # first: the deployment log (written at the end of every run)
     'tables/t_d_app_user.sql',
     'tables/t_d_department.sql',
     'tables/t_d_entity.sql',
@@ -53,6 +54,7 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'tables/t_f_payroll_input.sql',
     'tables/t_f_payroll_line.sql',
     'tables/t_d_scenario_employee.sql',
+    'tables/t_z_deploy_test.sql',               # TEST OBJECT (TEST_CASES.md); remove after testing
     # --- views ---
     'views/v_d_app_user.sql',
     'views/v_d_employee.sql',
@@ -84,6 +86,7 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'views/v_f_scenario_summary.sql',
     'views/v_f_dashboard_month.sql',
     'views/v_f_cost_center_summary.sql',
+    'views/v_z_deploy_test.sql',                # TEST OBJECT (TEST_CASES.md); remove after testing
     # --- procedures ---
     'procedures/sp_approve_step.sql',
     'procedures/sp_calc_period.sql',
@@ -188,26 +191,38 @@ def first_line(e):
     return (str(e).strip().splitlines() or [type(e).__name__])[0][:200]
 
 
-def verify(env, session=None):
-    """Read-only check of the whole deployment: all of DEPLOY_ORDER, not only what was just deployed."""
-    session = session or get_session()
+def load_cfg(env):
     with open(os.path.join(HERE, 'config.yml'), encoding='utf-8') as f:
-        cfg = yaml.safe_load(f)[env]
+        return yaml.safe_load(f)[env]
+
+
+def show_objects(session, db):
+    """{kind: set of names} in APP / RPT, and {kind: error} for a kind that could not be listed."""
+    found, errors = {}, {}
+    for kind in SCHEMA:
+        try:                                                         # SHOW lists what the role can see; no warehouse needed
+            rows = session.sql(f'SHOW {kind.upper()} IN SCHEMA {db}.{SCHEMA[kind]}').collect()
+            found[kind] = {str(r['name']).upper() for r in rows if r.as_dict().get('is_builtin') != 'Y'}   # skip SYSTEM$... procedures
+        except Exception as e:
+            found[kind], errors[kind] = set(), first_line(e)
+    return found, errors
+
+
+def verify(env, session=None):
+    """Read-only check of the whole deployment: all of DEPLOY_ORDER, not only what was just deployed.
+    Prints the VERIFY block; returns (confirmed, summary, problems)."""
+    session = session or get_session()
+    cfg = load_cfg(env)
     db = cfg['database']
     session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
     expected = {kind: set() for kind in SCHEMA}                      # file name = object name
     for f in DEPLOY_ORDER:
         kind, name = f.split('/')
         expected[kind].add(name[:-4].upper())
-    report, found = [], {}                                           # report: (label, ok, total, issues)
+    found, errors = show_objects(session, db)
+    report = []                                                      # (label, ok, total, issues)
     for kind, names in expected.items():
-        where = f'{db}.{SCHEMA[kind]}'
-        try:                                                         # SHOW lists what the role can see; no warehouse needed
-            rows = session.sql(f'SHOW {kind.upper()} IN SCHEMA {where}').collect()
-            found[kind] = {str(r['name']).upper() for r in rows if r.as_dict().get('is_builtin') != 'Y'}   # skip SYSTEM$... procedures
-            issues = []
-        except Exception as e:
-            found[kind], issues = set(), [f'cannot list {kind} in {where}: {first_line(e)}']
+        issues = [f'cannot list {kind} in {db}.{SCHEMA[kind]}: {errors[kind]}'] if kind in errors else []
         missing = sorted(names - found[kind])
         issues = issues or ([f"missing: {', '.join(missing)}"] if missing else [])
         report.append((f'{kind} in {SCHEMA[kind]}', len(names) - len(missing), len(names), issues))
@@ -220,36 +235,88 @@ def verify(env, session=None):
     report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
     extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
 
+    lines = [f'{label} {ok}/{total}' for label, ok, total, _ in report] + [f"unexpected {', '.join(extra) or 'none'}"]
+    problems = '; '.join([i for *_, issues in report for i in issues] + ([f"unexpected: {', '.join(extra)}"] if extra else []))
+
     print(f'\nVERIFY ({env}): {db}')
     for label, ok, total, issues in report:
         print(f'  {label:<18}{ok}/{total}' + (f"   {'; '.join(issues)}" if issues else ''))
     print(f"  {'unexpected':<18}{', '.join(extra) if extra else 'none'}")
-    if extra or any(issues for *_, issues in report):
+    if problems:
         print(f'DEPLOYMENT NOT CONFIRMED ({env}): see the lines above.')
-        raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env})')
-    print(f'DEPLOYMENT CONFIRMED ({env}): all {sum(len(v) for v in expected.values())} objects verified in {db}.')
+    else:
+        print(f'DEPLOYMENT CONFIRMED ({env}): all {sum(len(v) for v in expected.values())} objects verified in {db}.')
+    return not problems, '; '.join(lines), problems
+
+
+def changed_scripts(session, db, env):
+    """Scripts changed in git since the last CONFIRMED deployment of env; None without git or without an earlier commit."""
+    import subprocess
+    try:
+        rows = session.sql(f"SELECT GIT_COMMIT FROM {db}.APP.T_F_DEPLOY_LOG WHERE ENV = ? AND STATUS = 'CONFIRMED' "
+                           'AND GIT_COMMIT IS NOT NULL ORDER BY DEPLOY_ID DESC LIMIT 1', params=[env]).collect()
+        if not rows:
+            return None                                              # first logged deployment of this env
+        out = subprocess.run(['git', '-C', HERE, 'diff', '--name-only', rows[0][0], 'HEAD', '--', '.'],
+                             capture_output=True, text=True, check=True).stdout
+        return ', '.join(p.removeprefix('deployment/') for p in out.split()) or 'none'
+    except Exception:                                               # no log table yet, no git (Snowsight), commit not fetched
+        return None
+
+
+def write_log(session, cfg, env, **row):
+    """One row in APP.T_F_DEPLOY_LOG; a failure to log is printed, never raised (the deployment result stands)."""
+    gh = os.environ.get                                              # set by GitHub Actions, absent in Snowsight
+    row |= {'ENV': env, 'GIT_COMMIT': gh('GITHUB_SHA'), 'TRIGGERED_BY': gh('GITHUB_ACTOR'),
+            'RUN_URL': f"{gh('GITHUB_SERVER_URL')}/{gh('GITHUB_REPOSITORY')}/actions/runs/{gh('GITHUB_RUN_ID')}" if gh('GITHUB_RUN_ID') else None}
+    values = ', '.join('COALESCE(?, CURRENT_USER())' if c == 'TRIGGERED_BY' else '?' for c in row)   # Snowsight: the Snowflake user
+    try:
+        session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+        session.sql(f"INSERT INTO {cfg['database']}.APP.T_F_DEPLOY_LOG ({', '.join(row)}) SELECT {values}",
+                    params=list(row.values())).collect()               # bound values: quotes in an error message are safe
+    except Exception as e:
+        print(f'WARNING: deployment log not written: {first_line(e)}')
 
 
 def deploy_all(env='uat', only=None, run=False, session=None, verify_only=False):
-    """Dry run unless run=True. Runs through the Snowpark session (the active one in Snowsight), then verifies."""
+    """Dry run unless run=True. Runs through the Snowpark session (the active one in Snowsight), then verifies and logs."""
     rendered = render_all(env, only)
     if verify_only and not run:
-        return verify(env, session)
+        if not verify(env, session)[0]:
+            raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env})')
+        return
     if not run:
         for name, sql in rendered.items():
             print(f'\n-- ===== {name} ({env}) =====\n{sql}')
         return
     from snowflake.connector.util_text import split_statements     # keeps $$ bodies whole
     session = session or get_session()
-    for name, sql in rendered.items():                              # silent; only a failure or the verification is printed
-        for stmt, _ in split_statements(io.StringIO(sql), remove_comments=True):
-            stmt = stmt.strip()
-            if stmt:
-                try:
-                    session.sql(stmt).collect()
-                except Exception as e:                               # stops at the first failure, naming the script
-                    raise RuntimeError(f'DEPLOYMENT FAILED ({env}) in {name}: {first_line(e)}') from None
-    verify(env, session)                                             # a finished run is not yet a successful deployment
+    cfg = load_cfg(env)
+    session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+    started = session.sql('SELECT CURRENT_TIMESTAMP()::TIMESTAMP_NTZ').collect()[0][0]
+    before = show_objects(session, cfg['database'])[0]              # to log what appeared / disappeared
+    log = {'STATUS': 'FAILED', 'SCRIPTS_RUN': len(rendered), 'STARTED_AT': started,
+           'CHANGED_SCRIPTS': changed_scripts(session, cfg['database'], env)}
+    try:
+        for name, sql in rendered.items():                          # silent; only a failure or the verification is printed
+            for stmt, _ in split_statements(io.StringIO(sql), remove_comments=True):
+                stmt = stmt.strip()
+                if stmt:
+                    try:
+                        session.sql(stmt).collect()
+                    except Exception as e:                           # stops at the first failure, naming the script
+                        log |= {'FAILED_SCRIPT': name, 'ERROR_MESSAGE': first_line(e)}
+                        raise RuntimeError(f'DEPLOYMENT FAILED ({env}) in {name}: {first_line(e)}') from None
+        confirmed, summary, problems = verify(env, session)         # a finished run is not yet a successful deployment
+        log |= {'STATUS': 'CONFIRMED' if confirmed else 'NOT CONFIRMED', 'VERIFY_SUMMARY': summary,
+                'ERROR_MESSAGE': problems or None}
+        if not confirmed:
+            raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env})')
+    finally:
+        after = show_objects(session, cfg['database'])[0]
+        moved = [f'added: {k[:-1]} {n}' for k in SCHEMA for n in sorted(after[k] - before[k])]
+        moved += [f'removed: {k[:-1]} {n}' for k in SCHEMA for n in sorted(before[k] - after[k])]
+        write_log(session, cfg, env, OBJECTS_ADDED_REMOVED='; '.join(moved) or None, **log)
 
 
 def main():

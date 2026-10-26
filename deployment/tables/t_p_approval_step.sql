@@ -3,6 +3,7 @@ USE ROLE "{{ role_owner }}";
 USE DATABASE {{ database }};
 
 -- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created in CORE by V1.0.1, moved to APP by V1.5.0; V1.4.0 added MANAGES_EMPLOYEE_CHECKS, V1.7.0 set the APPROVER_ROLE comment).
+-- 2026-10-26  Reference rows removed from this script: they are loaded and maintained in each environment, not by the deployment.
 -- CREATE TABLE IF NOT EXISTS: safe to run on every deployment; an existing table keeps its rows.
 CREATE TABLE IF NOT EXISTS APP.T_P_APPROVAL_STEP (
     APPROVAL_STEP_ID       INT       IDENTITY(1,1) NOT NULL COMMENT 'Surrogate key of the step version',
@@ -21,19 +22,3 @@ CREATE TABLE IF NOT EXISTS APP.T_P_APPROVAL_STEP (
     CONSTRAINT PK_T_P_APPROVAL_STEP PRIMARY KEY (APPROVAL_STEP_ID),
     CONSTRAINT FK_APPROVAL_STEP_FROM FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES APP.T_D_PERIOD (PERIOD_KEY)
 ) COMMENT = 'Effective-dated approval chain definition.';
-
--- 2026-10-19  Reference data (from V1.1.0, with the roles of V1.7.0 and the employee-check flag of V1.4.0): the 3-step approval chain.
--- Reference rows: inserted once, only while the table is empty.
-EXECUTE IMMEDIATE $$
-DECLARE
-    n INTEGER;
-BEGIN
-    SELECT COUNT(*) INTO :n FROM APP.T_P_APPROVAL_STEP;
-    IF (n = 0) THEN
-        INSERT INTO APP.T_P_APPROVAL_STEP (STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, VALID_FROM_PERIOD_KEY, MANAGES_EMPLOYEE_CHECKS) VALUES
-            (1, 'HR Manager', 'LEVEL_1', 'ALL', 202601, FALSE),
-            (2, 'Treasurer',  'LEVEL_2', 'ALL', 202601, TRUE),
-            (3, 'Director',   'LEVEL_3', 'ALL', 202601, FALSE);
-    END IF;
-END;
-$$;
