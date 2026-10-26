@@ -32,4 +32,4 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install snowflake-snowpark-python pyyaml
-      - run: python deployment/deploy.py uat $ONLY
+      - run: python deployment/deploy.py uat $ONLY --run

@@ -1,7 +1,6 @@
 # Deploys deployment/ (EuroCham tables, views, procedures) on every push to main, after approval by the Snowflake
 # Administrator (required reviewer of the GitHub Environment `prod`), then verifies it.
 # main holds exactly what runs in prod; changes reach it only by a pull request from eurocham-dev.
-# END-TO-END TESTING: this still deploys to uat. After testing, change `uat` to `prod` in the last line.
 # Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
 name: EuroCham deploy (prod)
 
@@ -14,7 +13,7 @@ on:
         description: 'Scripts to deploy, space-separated (e.g. t_d_employee v_d_employee). Empty = all'
         required: false
 
-concurrency: eurocham-deploy-uat          # testing against uat; becomes eurocham-deploy-prod with the switch to prod
+concurrency: eurocham-deploy-prod         # one deployment at a time against prod
 
 jobs:
   deploy:
@@ -33,4 +32,4 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install snowflake-snowpark-python pyyaml
-      - run: python deployment/deploy.py uat $ONLY            # TODO after end-to-end testing: uat -> prod
+      - run: python deployment/deploy.py prod $ONLY --run
