@@ -22,7 +22,7 @@ import sys
 
 import yaml
 
-ENV = 'prod'                          # Change this to 'prod' when deploying to production
+ENV = 'uat'                          # Change this to 'prod' when deploying to production
 ONLY = None                           # Snowsight: None = everything, or e.g. ['views'] / ['t_d_entity']
 RUN = True                            # Snowsight: False = print only(dry-run), True = execute (run all the objects)
 VERIFY = False                        # Snowsight: with RUN = False, True = only verify an earlier deployment (read-only)
