@@ -1,6 +1,6 @@
 """Render the DDL scripts (`{{ key }}` placeholders + config.yml) and run them in dependency order.
 
-Everything runs in the order of DEPLOY_ORDER below: tables -> views -> procedures, dependencies first.
+Everything runs in the order of DEPLOY_ORDER below: tables -> views -> procedures -> stages -> functions, dependencies first.
 A new script is added to the list by hand. Before every run, deploy.py checks that the list matches the folders (no script
 missing, none unknown) and that no script is listed before one named in its `-- depends_on:` line.
 
@@ -27,7 +27,7 @@ ONLY = None                           # Snowsight: None = everything, or e.g. ['
 RUN = True                            # Snowsight: False = print only(dry-run), True = execute (run all the objects)
 VERIFY = False                        # Snowsight: with RUN = False, True = only verify an earlier deployment (read-only)
 
-SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP'}      # fixed in the scripts
+SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
 
 HERE = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 DEPLOY_ORDER = [                      # run order; a new script is added here (dependencies first)
@@ -115,6 +115,10 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'procedures/sp_save_statutory_parameter.sql',
     'procedures/sp_save_working_days.sql',
     'procedures/sp_set_employee_active.sql',
+    # --- stages (the files in them are uploaded by hand) ---
+    'stages/payslip_template.sql',
+    # --- functions ---
+    'functions/fn_payslip_pdf.sql',
 ]
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
@@ -131,7 +135,7 @@ def render(text, cfg):
 def check_order():
     """DEPLOY_ORDER must match the folders and respect every `-- depends_on:` line."""
     listed = set(DEPLOY_ORDER)
-    on_disk = {f'{d}/{n}' for d in ('tables', 'views', 'procedures') for n in os.listdir(os.path.join(HERE, d)) if n.endswith('.sql')}
+    on_disk = {f'{d}/{n}' for d in SCHEMA for n in os.listdir(os.path.join(HERE, d)) if n.endswith('.sql')}
     problems = [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
     problems += [f'listed but missing: {f}' for f in sorted(listed - on_disk)]
     problems += [f'listed twice: {f}' for f in sorted({f for f in DEPLOY_ORDER if DEPLOY_ORDER.count(f) > 1})]
@@ -149,7 +153,7 @@ def check_order():
 
 
 def plan(only=None):
-    """Scripts in run order, optionally limited to folders (tables/views/procedures) and/or script names."""
+    """Scripts in run order, optionally limited to folders (see SCHEMA) and/or script names."""
     if not only:
         return list(DEPLOY_ORDER)
     want = [o.lower().removesuffix('.sql') for o in only]
@@ -157,7 +161,7 @@ def plan(only=None):
     known = {x for f in DEPLOY_ORDER for x in (f.split('/')[0], os.path.basename(f)[:-4])}
     bad = [o for o in want if o not in known]
     if bad:
-        raise ValueError(f'Unknown: {bad}. Folders: tables, views, procedures')
+        raise ValueError(f"Unknown: {bad}. Folders: {', '.join(SCHEMA)}")
     return out
 
 
@@ -323,7 +327,7 @@ def main():
     import argparse
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('env')
-    ap.add_argument('only', nargs='*', help='folders (tables/views/procedures) or script names; default: all')
+    ap.add_argument('only', nargs='*', help=f"folders ({'/'.join(SCHEMA)}) or script names; default: all")
     ap.add_argument('--run', action='store_true', help='execute, then verify (default: only print)')
     ap.add_argument('-c', '--connection', help='Snowflake connection name (connections.toml)')
     if len(sys.argv) < 2 or sys.argv[1].startswith('-'):     # no terminal arguments (Snowsight): use the settings above
