@@ -12,8 +12,12 @@ Terminal / GitHub Actions (needs: pip install pyyaml snowflake-snowpark-python):
 
 Snowsight (Workspace with this folder uploaded): set ENV / ONLY / RUN / VERIFY below and press Run on this file.
 
+To drop an object (the only way to drop one in prod): delete its file and its DEPLOY_ORDER line and add it to RETIRED,
+in one commit. Every full run (no ONLY) ends with DROP ... IF EXISTS for each RETIRED entry, so a repeat does nothing.
+
 Every run (RUN / --run) ends with a verification of all of DEPLOY_ORDER: every object exists, every view compiles, and
-APP / RPT hold nothing that is not in DEPLOY_ORDER. It prints DEPLOYMENT CONFIRMED, or fails with DEPLOYMENT NOT CONFIRMED.
+APP / RPT hold nothing that is not in DEPLOY_ORDER (a RETIRED object still there is reported as "still to drop").
+It prints DEPLOYMENT CONFIRMED, or fails with DEPLOYMENT NOT CONFIRMED.
 """
 import io
 import os
@@ -122,6 +126,13 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     # --- views that use a function (after it) ---
     'views/v_f_payslip_doc.sql',
 ]
+RETIRED = [                           # dropped at the end of every full run (DROP ... IF EXISTS); file and DEPLOY_ORDER line gone
+    # 'tables/t_x',                         a table's rows go with it (Snowflake keeps it for the Time Travel days: UNDROP TABLE)
+    # 'views/v_f_old_report',
+    # 'procedures/sp_old_thing(TEXT, INT)', procedures and functions: the argument types of the old CREATE line
+]
+DROP_KIND = {'views': 'VIEW', 'functions': 'FUNCTION', 'procedures': 'PROCEDURE', 'stages': 'STAGE', 'tables': 'TABLE'}   # drop order
+RETIRED_ENTRY = re.compile(r'^(\w+)/(\w+)(\([\w ,]*\))?$')
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
 
@@ -134,13 +145,39 @@ def render(text, cfg):
     return re.sub(r'\{\{\s*(\w+)\s*\}\}', sub, text)
 
 
+def retired():
+    """RETIRED as (folder, NAME, '(ARGS)' or ''); a malformed entry stops the run (check_order)."""
+    out = []
+    for e in RETIRED:
+        m = RETIRED_ENTRY.match(e.strip())
+        if not m or m.group(1) not in SCHEMA:
+            raise ValueError(f"RETIRED entry {e!r}: write it as <folder>/<name>, folder one of {', '.join(SCHEMA)}")
+        folder, name, args = m.group(1), m.group(2).upper(), (m.group(3) or '').upper()
+        if (folder in ('procedures', 'functions')) != bool(args):
+            raise ValueError(f"RETIRED entry {e!r}: procedures and functions need their argument types, e.g. sp_x(TEXT, INT); "
+                             'other objects take none')
+        out.append((folder, name, args))
+    return out
+
+
+def drop_statements(db):
+    """DROP ... IF EXISTS for every RETIRED entry: views, functions, procedures, stages, then tables."""
+    return [f'DROP {DROP_KIND[f]} IF EXISTS {db}.{SCHEMA[f]}.{n}{a}'
+            for kind in DROP_KIND for f, n, a in retired() if f == kind]
+
+
 def check_order():
-    """DEPLOY_ORDER must match the folders and respect every `-- depends_on:` line."""
+    """DEPLOY_ORDER must match the folders and respect every `-- depends_on:` line; RETIRED must not overlap it."""
     listed = set(DEPLOY_ORDER)
     on_disk = {f'{d}/{n}' for d in SCHEMA for n in os.listdir(os.path.join(HERE, d)) if n.endswith('.sql')}
     problems = [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
     problems += [f'listed but missing: {f}' for f in sorted(listed - on_disk)]
     problems += [f'listed twice: {f}' for f in sorted({f for f in DEPLOY_ORDER if DEPLOY_ORDER.count(f) > 1})]
+    entries = retired()
+    problems += [f'RETIRED twice: {f}/{n}{a}' for f, n, a in sorted({e for e in entries if entries.count(e) > 1})]
+    for f, n, a in entries:               # a procedure / function may keep its name with new arguments (old signature retired)
+        if not a and f'{f}/{n.lower()}.sql' in listed:
+            problems.append(f'both in DEPLOY_ORDER and RETIRED: {f}/{n.lower()}')
     pos = {os.path.basename(f)[:-4]: i for i, f in enumerate(DEPLOY_ORDER)}
     for i, f in enumerate(DEPLOY_ORDER):
         if f not in on_disk:
@@ -239,15 +276,23 @@ def verify(env, session=None):
         except Exception as e:
             broken.append(f'{v} ({first_line(e)})')
     report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
-    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
+    gone = {kind: set() for kind in SCHEMA}                          # RETIRED names (an old signature of a kept name: by name only)
+    for f, n, _ in retired():
+        if n not in expected[f]:
+            gone[f].add(n)
+    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind] - gone[kind])   # leftover or duplicate
+    left = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] & gone[kind])   # RETIRED but still there
 
-    lines = [f'{label} {ok}/{total}' for label, ok, total, _ in report] + [f"unexpected {', '.join(extra) or 'none'}"]
-    problems = '; '.join([i for *_, issues in report for i in issues] + ([f"unexpected: {', '.join(extra)}"] if extra else []))
+    lines = [f'{label} {ok}/{total}' for label, ok, total, _ in report] + [f"unexpected {', '.join(extra) or 'none'}",
+                                                                           f"still to drop {', '.join(left) or 'none'}"]
+    problems = '; '.join([i for *_, issues in report for i in issues] + ([f"unexpected: {', '.join(extra)}"] if extra else [])
+                         + ([f"still to drop (RETIRED): {', '.join(left)}"] if left else []))
 
     print(f'\nVERIFY ({env}): {db}')
     for label, ok, total, issues in report:
         print(f'  {label:<18}{ok}/{total}' + (f"   {'; '.join(issues)}" if issues else ''))
     print(f"  {'unexpected':<18}{', '.join(extra) if extra else 'none'}")
+    print(f"  {'still to drop':<18}{', '.join(left) if left else 'none'}")
     if problems:
         print(f'DEPLOYMENT NOT CONFIRMED ({env}): see the lines above.')
     else:
@@ -291,9 +336,12 @@ def deploy_all(env='uat', only=None, run=False, session=None, verify_only=False)
         if not verify(env, session)[0]:
             raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env})')
         return
+    drops = [] if only else drop_statements(load_cfg(env)['database'])   # ONLY runs named scripts and drops nothing
     if not run:
         for name, sql in rendered.items():
             print(f'\n-- ===== {name} ({env}) =====\n{sql}')
+        if drops:
+            print(f'\n-- ===== RETIRED ({env}) =====\n' + ''.join(f'{d};\n' for d in drops))
         return
     from snowflake.connector.util_text import split_statements     # keeps $$ bodies whole
     session = session or get_session()
@@ -313,6 +361,12 @@ def deploy_all(env='uat', only=None, run=False, session=None, verify_only=False)
                     except Exception as e:                           # stops at the first failure, naming the script
                         log |= {'FAILED_SCRIPT': name, 'ERROR_MESSAGE': first_line(e)}
                         raise RuntimeError(f'DEPLOYMENT FAILED ({env}) in {name}: {first_line(e)}') from None
+        for stmt in drops:                                           # after the scripts: nothing still uses what is dropped
+            try:
+                session.sql(stmt).collect()
+            except Exception as e:
+                log |= {'FAILED_SCRIPT': stmt, 'ERROR_MESSAGE': first_line(e)}
+                raise RuntimeError(f'DEPLOYMENT FAILED ({env}) in {stmt}: {first_line(e)}') from None
         confirmed, summary, problems = verify(env, session)         # a finished run is not yet a successful deployment
         log |= {'STATUS': 'CONFIRMED' if confirmed else 'NOT CONFIRMED', 'VERIFY_SUMMARY': summary,
                 'ERROR_MESSAGE': problems or None}
