@@ -1,6 +1,6 @@
 """Render the DDL scripts (`{{ key }}` placeholders + config.yml) and run them in dependency order.
 
-Everything runs in the order of DEPLOY_ORDER below: tables -> views -> procedures -> stages -> functions, dependencies first.
+Everything runs in the order of DEPLOY_ORDER below: tables -> views -> procedures -> stages -> functions -> views that use a function, dependencies first.
 A new script is added to the list by hand. Before every run, deploy.py checks that the list matches the folders (no script
 missing, none unknown) and that no script is listed before one named in its `-- depends_on:` line.
 
@@ -119,6 +119,8 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'stages/payslip_template.sql',
     # --- functions ---
     'functions/fn_payslip_pdf.sql',
+    # --- views that use a function (after it) ---
+    'views/v_f_payslip_doc.sql',
 ]
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
