@@ -1,72 +1,128 @@
-# HR_PAYROLL_SBI_APAC – EuroCham payroll on Snowflake
+# EuroCham Payroll - deployment scripts
 
-Database objects for the EuroCham payroll, budget and forecast app (ECCC and CCIFC):
-tables, views and stored procedures. Power Apps reads the views and writes only by
-calling the procedures. The objects are deployed by a dbt project on Snowflake, run from
-GitHub Actions (`.github/workflows/dbt-uat.yml`).
+Plain SQL scripts for the tables, views, procedures, stages and functions of the EuroCham payroll app. They create or
+update objects in **existing** schemas. The database, the schemas, the roles and the grants are provisioned by the
+Snowflake Administrator and are not part of these scripts.
 
-## Layout
+```
+deployment/
+├── config.yml        per-environment values: database and owner role
+├── deploy.py         renders the {{ }} placeholders from config.yml, runs the scripts in order, then verifies
+├── tables/           22 scripts   (T_*)
+├── views/            31 scripts   (V_*)
+├── procedures/       28 scripts   (SP_*)
+├── stages/            1 script    (PAYSLIP_TEMPLATE)
+└── functions/         1 script    (FN_*)
+```
 
-| Folder | Contents | Deployed to |
-| --- | --- | --- |
-| `EuroCham Payroll dbt/models/tables/` | One file per table (`CREATE TABLE IF NOT EXISTS` + reference rows inserted once) | APP schema, by dbt |
-| `EuroCham Payroll dbt/models/procedures/` | One file per stored procedure (`CREATE OR REPLACE`) | APP schema, by dbt |
-| `EuroCham Payroll dbt/models/views/` | One file per view (`CREATE OR REPLACE`) | RPT schema, by dbt |
-| `EuroCham Payroll dbt/profiles.yml` | Targets: `dev` (`DEV_PAYROLL_DB.APP/RPT`), `uat` (`DEV_PAYROLL_DB.APP_UAT/RPT_UAT`, default), `prod` (`PROD_PAYROLL_DB.APP/RPT`) | – |
-| `snowflake/config/` | `01_database`, `02_schema`, `03_roles` (incl. the app role's grants: run after every deploy), `04_warehouse` | Run by hand |
-| `dev_data/` | Dummy data, check queries, snapshot save / restore | Dev only, run by hand |
-| `tests/` | Test calls for the procedures, each with its expected result | Dev only, run by hand |
-| `flows/` | The Power Automate flow (SF_EuroCham) and how the app calls it | Built by hand in Power Automate |
-| `optional/` | Extras that need a decision first (bank-detail masking, Enterprise Edition) and dev-only extras (`load_dummy_signatures.sql`: dummy approver signatures for Power BI) | Run by hand when agreed |
-| `docs/` | Documentation |  |
-
-## Script rules
-
+## Rules for every script
 - One object per file; the file name is the object name in lower case (`t_d_entity.sql`).
-- Every name is written `{{ app() }}.<name>` (tables, procedures) or `{{ rpt() }}.<name>` (views):
-  `APP` / `RPT`, or `APP_UAT` / `RPT_UAT` on the uat target, `APP_PROD` / `RPT_PROD` on prod; the database comes from the target. No `USE DATABASE`.
-- The first line lists the objects the file uses: `-- depends_on: {{ ref('t_d_period') }}, …` (build order).
-- **Tables** are never replaced: a new column is an `ALTER TABLE {{ app() }}.<name> ADD COLUMN IF NOT EXISTS …`
-  line added to the table's file. Renames and drops are written by hand.
-- **Views and procedures** are edited in place. They carry `COPY GRANTS`, so the app's
-  rights survive a redeploy. Procedures keep `COMMENT` before `EXECUTE AS OWNER`.
-- Every file keeps its **History** header with a dated line per change.
-- A new procedure or view for the app also needs a line in `snowflake/config/03_roles.sql` (section 10).
+- Starts with an optional `-- depends_on: T_A, T_B` line, then `USE ROLE` and `USE DATABASE` (from `config.yml`). The warehouse comes from the connection / user default.
+  `USE ROLE` is the owner role, so every object is created by, and owned by, that role.
+- Schemas are written directly: `APP` (tables, procedures, stages, functions) and `RPT` (views). The only placeholders are `{{ database }}` and `{{ role_owner }}`.
+- **Tables** are never replaced: `CREATE TABLE IF NOT EXISTS`, structure only (no `INSERT` of reference data; that data
+  is loaded once per environment). A new column is an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` line in the same file;
+  a new column **with a `DEFAULT`** needs a guarded `EXECUTE IMMEDIATE` block, because `ADD COLUMN IF NOT EXISTS ... DEFAULT`
+  fails when run again. Renames and drops are written by hand.
+- **Stages** are `CREATE STAGE IF NOT EXISTS`; the files in them are uploaded by hand.
+- **Views, procedures and functions** are `CREATE OR REPLACE ... COPY GRANTS`, so existing grants survive a redeploy.
+- Every script is safe to run again: every deployment runs all scripts.
 
-## How a change reaches Snowflake
+## Order
+`DEPLOY_ORDER` at the top of `deploy.py` lists every script, in the order they run: tables, views, procedures, stages,
+functions, then the views that use a function, dependencies first (needed for table foreign keys and for views that
+read other views). Before every run, `deploy.py`
+checks the list against the folders and stops if a script is not listed, is listed but missing, is listed twice, or comes
+before a script named in its own `-- depends_on:` line.
 
-1. Edit the file on the `eurocham-uat` branch and push.
-2. GitHub Actions deploys the project (`snow dbt deploy`) and runs `dbt build` on the `uat` target
-   (`DEV_PAYROLL_DB.APP_UAT` / `RPT_UAT`).
-3. Prod is deployed by hand from `main` (manual workflow, approval required): see [docs/DEPLOY_PROD.md](docs/DEPLOY_PROD.md).
+## Deploying Process
+Choose one of the two ways below. Both run the same scripts, then verify; a good run ends with
+`DEPLOYMENT CONFIRMED (<env>)`.
 
-## Stored procedures (APP, 25)
+### Option 1: GitHub Actions
+A push or merged pull request to `main` deploys to prod (`.github/workflows/eurocham-deploy.yml`).
 
-| Area | Procedures |
-| --- | --- |
-| Calculation (internal) | `SP_CALC_PERIOD`, `SP_RESET_APPROVALS` |
-| Payroll cycle | `SP_CALCULATE_PAYROLL`, `SP_OPEN_PAYROLL_PERIOD`, `SP_SAVE_MONTHLY_INPUT`, `SP_FINALIZE_PAYROLL` |
-| Approvals | `SP_SET_EMPLOYEE_CHECK`, `SP_APPROVE_STEP`, `SP_REJECT_STEP`, `SP_UNDO_APPROVAL` |
-| Employees | `SP_SAVE_EMPLOYEE`, `SP_SAVE_EMPLOYEE_CONTRACT`, `SP_SET_EMPLOYEE_ACTIVE` |
-| Cost center | `SP_SAVE_FUND_ALLOCATION`, `SP_SAVE_DEPARTMENT_ALLOCATION` |
-| Settings | `SP_SAVE_EXCHANGE_RATE`, `SP_SAVE_WORKING_DAYS`, `SP_SAVE_APPROVAL_STEPS` |
-| Budgets and forecasts | `SP_CREATE_SCENARIO`, `SP_SAVE_SCENARIO_EMPLOYEE`, `SP_SAVE_PLANNED_HIRE`, `SP_DELETE_PLANNED_HIRE`, `SP_SUBMIT_SCENARIO`, `SP_DELETE_SCENARIO`, `SP_CREATE_FORECAST` |
+**Pre-requisite** (before running the GitHub Actions workflow): in GitHub -> Settings -> Secrets and Variables -> Actions, add these repository secrets:
 
-Each file's header describes its parameters, rules and the page that calls it.
+| Secret | Value |
+|---|---|
+| `SNOWFLAKE_ACCOUNT` | Snowflake account identifier |
+| `SNOWFLAKE_USER` | Snowflake user that runs the deployment |
+| `SNOWFLAKE_PAT` | a PAT of that user, generated for the `EUROCHAM_PAYROLL-DBA` role |
 
-## Setting up a dev database
+When the secrets are right, the step "Check the Snowflake connection" prints:
 
-1. Run `snowflake/config/02_schema.sql`, `dbt build --target dev`, then section 10 of `snowflake/config/03_roles.sql`.
-2. Run `dev_data/load_dummy_data.sql` and review the checks at its end. Optional:
-   `optional/load_dummy_signatures.sql` (dummy signatures for Power BI).
-3. Run `tests/test_01_payroll_cycle.sql`, then `tests/test_02_remaining_procedures.sql`,
-   top to bottom, comparing each result with its expected value.
+```
+CONNECTED to Snowflake account <prod account> as *** (role EUROCHAM_PAYROLL-DBA, warehouse EUROCHAM_WH)
+```
 
-## Conventions
+If a secret is missing or wrong, the run stops at that step with `CONNECTION FAILED`.
 
-- Tables `T_D_` (dimension), `T_F_` (fact), `T_P_` (parameter); views `V_D_` / `V_F_` / `V_P_`;
-  procedures `SP_`.
-- Standard technical columns on every table: `INSERT_DATE`, `UPDATE_DATE`, `INSERT_BY`, `UPDATE_BY`.
-- Every column has a `COMMENT`.
-- Power Apps writes only through `SP_` procedures, called by Power Automate with the
-  user's email. Procedures return `{"status": "OK" | "ERROR", "message": "..."}`.
+### Option 2: Snowsight
+Open this folder in a Snowsight Workspace, open `deploy.py`, and set the settings at the top:
+
+```python
+ENV = 'prod'     # which block of config.yml to use: 'uat' or 'prod'
+ONLY = None      # None = all scripts, or a subset, e.g. ['views'] or ['t_d_entity']
+RUN = False      # False = dry run: only prints the SQL.  True = deploys
+VERIFY = False   # with RUN = False: True = only check what is deployed (read-only)
+```
+
+1. **Dry run.** Keep `RUN = False` and press Run. The Output tab prints every script with the database and `USE ROLE`
+   of the chosen environment. Nothing is sent to Snowflake.
+2. **Deploy.** Set `RUN = True` and press Run again. The run stops at the first error.
+
+## Confirming the deployment
+A run without an error is not yet a confirmed deployment. After every run, `deploy.py` checks all 83 objects, not only
+the ones it deployed. The output must end with:
+
+```
+VERIFY (prod): EUROCHAM_PAYROLL_DB
+  tables in APP     22/22
+  views in RPT      31/31
+  procedures in APP 28/28
+  stages in APP     1/1
+  functions in APP  1/1
+  views compile     31/31
+  unexpected        none
+DEPLOYMENT CONFIRMED (prod): all 83 objects verified in EUROCHAM_PAYROLL_DB.
+```
+
+Anything else ends with `DEPLOYMENT NOT CONFIRMED (prod)`; the line with the problem names the missing, broken or
+unexpected objects. To only check prod without deploying, run in Snowsight with `RUN = False` and `VERIFY = True`.
+
+## Deployment log
+Every run with `RUN = True` / `--run` writes one row to `APP.T_F_DEPLOY_LOG`, whatever the outcome (dry runs and
+VERIFY-only checks are not logged):
+
+| Column | Content |
+|---|---|
+| `STATUS` | `CONFIRMED`, `NOT CONFIRMED` (verification found problems) or `FAILED` (a statement failed) |
+| `CHANGED_SCRIPTS` | scripts changed in git since the last `CONFIRMED` deployment of that environment, e.g. `tables/t_d_employee.sql, views/v_d_employee.sql`; `none` = a redeploy without changes; empty from Snowsight or for the first logged deployment |
+| `OBJECTS_ADDED_REMOVED` | objects that appeared or disappeared during the run, e.g. `added: table T_D_NEW; removed: table T_D_OLD` |
+| `FAILED_SCRIPT`, `ERROR_MESSAGE` | the script that stopped the run and the first line of the error, or the verification problems |
+| `VERIFY_SUMMARY` | the verification counts |
+| `GIT_COMMIT`, `TRIGGERED_BY`, `RUN_URL` | the commit deployed, who pushed or merged it, and the link to the GitHub Actions run (from Snowsight: the Snowflake user) |
+| `STARTED_AT`, `FINISHED_AT`, `DEPLOYED_BY` | timing and the Snowflake user of the deployment |
+
+## Future DDL/Objects changes
+To change an object, change its own script, the same file that created it. There is no separate "change script".
+
+Every deployment runs all the scripts again, and each script is written so that running it again is harmless. So
+redeploying is always safe: objects that have not changed stay as they are, and nothing is lost.
+
+- **Views, procedures and functions** are simply replaced by the new version.
+- **Tables are never replaced**, so their data is always kept. A change to a table (a new column, a renamed column, ...)
+  is written as an extra line in the table's script that updates the existing table, next to the table definition.
+- **A new object** is a new script in the right folder, also added to the list in `deploy.py`.
+- **Removing an object** means deleting its script, and dropping the object by hand in Snowflake; until then, the
+  verification reports it as `unexpected`.
+
+Every change goes to uat first (`eurocham-dev`), and reaches prod only through a pull request into `main`. Each
+deployment should end with `DEPLOYMENT CONFIRMED`.
+
+## Not included
+- Database, schemas, roles, users and integrations: provisioned and maintained by the Snowflake Administrator.
+- Grants to the application role: managed by the Snowflake Administrator. A new view or procedure that needs a grant
+  that the schema's existing grants do not already cover must be requested from the Snowflake Administrator.
+- Reference data rows (departments, periods, tax brackets, ...): loaded once per environment, not by these scripts.
