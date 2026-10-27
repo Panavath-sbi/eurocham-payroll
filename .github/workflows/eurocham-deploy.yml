@@ -1,25 +1,36 @@
-# Deploys deployment/ (EuroCham tables, views, procedures) to uat on every push to eurocham-dev, then verifies it.
-# eurocham-dev holds exactly what runs in uat. Every push deploys all scripts (each is safe to run again).
-# "Run workflow" with `only` deploys just the named scripts.
+# Deploys deployment/ (EuroCham tables, views, procedures) with deploy.py, then verifies it (DEPLOYMENT CONFIRMED).
+#   Push to eurocham-dev -> uat.  eurocham-dev holds exactly what runs in uat.
+#   Push to main         -> prod. main holds exactly what runs in prod; changes reach it by a pull request from eurocham-dev.
+#   "Run workflow"       -> the environment you choose (uat / prod), and optionally `only` to deploy just the named scripts.
+# prod always runs in the GitHub Environment `prod`, so it waits for the Snowflake Administrator's approval.
 # Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
-name: EuroCham deploy (eurocham-dev -> uat)
+# The environment expression (chosen input, else main -> prod, else uat) is repeated where GitHub does not allow `env`.
+name: EuroCham deploy
+run-name: EuroCham deploy | ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }} | ${{ github.ref_name }}
 
 on:
   push:
-    branches: [eurocham-dev]
+    branches: [eurocham-dev, main]
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Environment to deploy to (prod waits for approval)'
+        type: choice
+        options: [uat, prod]
+        default: uat
+        required: true
       only:
         description: 'Scripts to deploy, space-separated (e.g. t_d_employee v_d_employee). Empty = all'
         required: false
 
-concurrency: eurocham-deploy-uat          # one deployment at a time against uat
+concurrency: eurocham-deploy-${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}   # one run at a time per environment
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: uat
+    environment: ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}
     env:
+      TARGET:             ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}   # block in deployment/config.yml
       SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}      # PAT is accepted as the password
@@ -49,5 +60,5 @@ jobs:
               sys.exit(f'CONNECTION FAILED: {deploy.first_line(e)}')
           print(f'CONNECTED to Snowflake account {account} as {user} (role {role}, warehouse {wh or "none - set a default warehouse"})')
           EOF
-      - name: Deploy to uat and verify
-        run: python deployment/deploy.py uat $ONLY --run
+      - name: Deploy to ${{ env.TARGET }} and verify
+        run: python deployment/deploy.py "$TARGET" $ONLY --run
