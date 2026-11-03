@@ -1,6 +1,20 @@
--- depends_on: T_D_APP_USER
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
+CREATE OR REPLACE VIEW RPT.V_D_APP_USER 
+(
+    USER_EMAIL, 
+    DISPLAY_NAME, 
+    ROLE_CODE, 
+    IS_ACTIVE,
+    HAS_SIGNATURE COMMENT 'TRUE when an e-signature image is stored for the user'
+)
+COMMENT = 'Users of the payroll app with their one role. The signature image itself is not shown.'
+AS
+SELECT 
+    USER_EMAIL, 
+    DISPLAY_NAME, 
+    ROLE_CODE, 
+    IS_ACTIVE, 
+    SIGNATURE_IMAGE IS NOT NULL
+FROM APP.T_D_APP_USER;
 
 /* =====================================================================================
    V_D_APP_USER - Users of the payroll app with their one role
@@ -12,7 +26,6 @@ USE DATABASE {{ database }};
                V_F_ALLOCATION, V_D_SCENARIO_EMPLOYEE, V_F_PAYROLL_LINE, V_D_LOOKUP,
                V_P_APPROVAL_STEP, V_D_APP_USER.
    2026-10-19  Own file for DLSync (was in R__views_rpt_app.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
 
    NOTES
    -----
@@ -24,12 +37,3 @@ USE DATABASE {{ database }};
 /* -------------------------------------------------------------------------------------
    App users and their role (no signature image): Settings, showing names
    ------------------------------------------------------------------------------------- */
-CREATE OR REPLACE VIEW RPT.V_D_APP_USER (
-    USER_EMAIL, DISPLAY_NAME, ROLE_CODE, IS_ACTIVE,
-    HAS_SIGNATURE COMMENT 'TRUE when an e-signature image is stored for the user'
-)
-COPY GRANTS
-COMMENT = 'Users of the payroll app with their one role. The signature image itself is not shown.'
-AS
-SELECT USER_EMAIL, DISPLAY_NAME, ROLE_CODE, IS_ACTIVE, SIGNATURE_IMAGE IS NOT NULL
-FROM APP.T_D_APP_USER;
