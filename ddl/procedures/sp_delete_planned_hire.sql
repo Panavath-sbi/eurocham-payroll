@@ -1,37 +1,3 @@
--- depends_on: T_D_APP_USER, T_D_SCENARIO, T_D_EMPLOYEE, T_D_SCENARIO_EMPLOYEE, T_F_PAYROLL_LINE, T_F_FUND_ALLOCATION, T_F_DEPARTMENT_ALLOCATION, T_F_PAYROLL_INPUT, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_DELETE_PLANNED_HIRE
-   Removes a planned hire from its budget or forecast scenario.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version.
-   2026-10-02  V1.5.0: no cost-allocation table to clean any more (it is a view); CORE -> APP;
-               one role per user.
-   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
-               only approvals are limited by role.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CALLED FROM
-   -----------
-   Budget Input and Forecast pages: delete a new hire.
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL (the Power Apps user, passed by Power Automate), checks the
-     user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   Only planned hires (IS_PLANNED = TRUE) of this scenario can be removed; actual employees
-   never can. All the hire's rows in the scenario are deleted, then the planned employee.
-   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_DELETE_PLANNED_HIRE(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_EMPLOYEE_ID INT)
 COPY GRANTS
 RETURNS VARIANT

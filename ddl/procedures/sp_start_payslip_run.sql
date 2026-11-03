@@ -1,34 +1,3 @@
--- depends_on: T_D_APP_USER, T_F_PAYSLIP_RUN, V_F_PAYSLIP_DUE, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_START_PAYSLIP_RUN
-   Logs that a month's payslips start going out (status SENDING).
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-21  Initial version.
-
-   CALLED FROM
-   -----------
-   The payslip flow (Power Automate), after every PDF of the month was generated and
-   before the first email is sent. P_USER_EMAIL is the flow's system user
-   (payslip-flow@system, an active user without a role in T_D_APP_USER).
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL, checks that it is an active app user, writes INSERT_BY /
-     UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   P_PERIOD_KEY: the month (YYYYMM). P_EMPLOYEE_COUNT: number of payslips prepared.
-   Rules: the month has no row in T_F_PAYSLIP_RUN yet (a month is never sent twice
-   automatically: the flow stops when this procedure refuses), and RPT.V_F_PAYSLIP_DUE
-   says SEND for it today (finalized before today, pay date passed).
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_START_PAYSLIP_RUN(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_EMPLOYEE_COUNT INT)
 COPY GRANTS
 RETURNS VARIANT

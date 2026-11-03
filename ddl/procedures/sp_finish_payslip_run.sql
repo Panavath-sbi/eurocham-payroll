@@ -1,35 +1,3 @@
--- depends_on: T_D_APP_USER, T_F_PAYSLIP_RUN, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_FINISH_PAYSLIP_RUN
-   Logs the end of a month's payslip run: SENT, or FAILED with the error.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-21  Initial version.
-
-   CALLED FROM
-   -----------
-   The payslip flow (Power Automate): SENT after the last email, FAILED from the flow's
-   error branch when sending stopped part way. P_USER_EMAIL is the flow's system user
-   (payslip-flow@system).
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL, checks that it is an active app user, writes UPDATE_BY and
-     T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   P_PERIOD_KEY: the month (YYYYMM). P_RUN_STATUS: 'SENT' or 'FAILED'.
-   P_MESSAGE (optional): the error reported by the flow; stored for FAILED only.
-   Rules: the month's run is SENDING (started by SP_START_PAYSLIP_RUN, not finished yet).
-   A FAILED month is not retried by the flow: an admin deletes the row (the whole month
-   is sent again) or sets it to SENT by hand.
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_FINISH_PAYSLIP_RUN(P_USER_EMAIL TEXT, P_PERIOD_KEY INT, P_RUN_STATUS TEXT, P_MESSAGE TEXT DEFAULT NULL)
 COPY GRANTS
 RETURNS VARIANT

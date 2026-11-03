@@ -1,39 +1,3 @@
--- depends_on: T_D_APP_USER, T_D_SCENARIO, T_F_APPROVAL, T_F_PAYROLL_LINE, T_F_FUND_ALLOCATION, T_F_DEPARTMENT_ALLOCATION, T_F_PAYROLL_INPUT, T_D_SCENARIO_EMPLOYEE, T_F_SCENARIO_PERIOD, T_D_EMPLOYEE, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_DELETE_SCENARIO
-   Deletes a budget or forecast scenario and everything in it.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version.
-   2026-10-02  Deletes the scenario's APP.T_F_APPROVAL_STEP_STATE rows (the action log was dropped).
-   2026-10-02  V1.5.0: approval rows in APP.T_F_APPROVAL; no request, employee-check,
-               cost-allocation or adjustment tables any more; CORE -> APP; one role per user.
-   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
-               only approvals are limited by role.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CALLED FROM
-   -----------
-   Budget Input page: "Delete Budget"; Forecast page: delete a forecast.
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL (the Power Apps user, passed by Power Automate), checks the
-     user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   Refused for the ACTUAL scenario, a scenario IN_APPROVAL and the official budget.
-   Deletes the scenario's pay lines, allocations, inputs, employee terms,
-   planned hires, approval history and months, then the scenario itself.
-   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_DELETE_SCENARIO(P_USER_EMAIL TEXT, P_SCENARIO_ID INT)
 COPY GRANTS
 RETURNS VARIANT
