@@ -17,4 +17,4 @@ CREATE OR REPLACE TABLE APP.T_P_STATUTORY_PARAMETER
     CONSTRAINT PK_T_P_STATUTORY_PARAMETER PRIMARY KEY (PARAM_CODE, VALID_FROM_PERIOD_KEY),
     CONSTRAINT FK_PARAM_FROM              FOREIGN KEY (VALID_FROM_PERIOD_KEY) REFERENCES APP.T_D_PERIOD (PERIOD_KEY)
 ) 
-COMMENT = 'Statutory rates, caps and constants, effective-dated. A change is a new row with a new VALID_FROM; old values stay for history. Replaces T_P_TAX_CEILING (except brackets
+COMMENT = 'Statutory rates, caps and constants, effective-dated. A change is a new row with a new VALID_FROM; old values stay for history. Replaces T_P_TAX_CEILING (except brackets).';

@@ -161,6 +161,8 @@ def check_files():
             if d in pos and pos[d] > i:
                 problems.append(f'{f} is listed before {d}, which it depends on')
         c = code(text)
+        if not c.rstrip().endswith(';'):
+            problems.append(f'{f}: does not end with ; (file cut off?)')
         if '{{' in re.sub(r'--[^\n]*|/\*.*?\*/', '', text, flags=re.S):   # also inside $$ bodies: nothing renders it
             problems.append(f'{f}: placeholder {{{{ }}}} (ddl files use real names)')
         if re.search(r'^\s*(USE|INSERT|MERGE|UPDATE|DELETE|TRUNCATE|GRANT|ALTER|EXECUTE\s+IMMEDIATE)\b', c, re.M | re.I):   # not EXECUTE AS CALLER
