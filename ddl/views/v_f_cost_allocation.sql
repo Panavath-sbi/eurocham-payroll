@@ -1,6 +1,4 @@
-
 CREATE OR REPLACE VIEW RPT.V_F_COST_ALLOCATION
-COPY GRANTS
 COMMENT = 'Grain: one row per scenario x period x employee x fund x department. Employee gross pay and employer cost (V_F_PAYROLL_SUMMARY) x fund share x department share. Employees without both a fund and a department split have no rows. Replaces the T_F_COST_ALLOCATION table.'
 AS
 SELECT

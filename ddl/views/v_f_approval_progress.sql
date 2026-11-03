@@ -1,5 +1,4 @@
 CREATE OR REPLACE VIEW RPT.V_F_APPROVAL_PROGRESS
-COPY GRANTS
 COMMENT = 'Every step of every approval (each payroll month, each submitted budget with PERIOD_KEY 0), its current state, and the next step to act on.'
 AS
 WITH item AS 
@@ -13,7 +12,8 @@ src AS
 (
     SELECT 
         i.SCENARIO_ID, 
-        i.PERIOD_KEY, s.SCENARIO_TYPE,
+        i.PERIOD_KEY, 
+        s.SCENARIO_TYPE,
         IFF(s.SCENARIO_TYPE = 'ACTUAL', sp.PERIOD_STATUS, s.SCENARIO_STATUS)         AS APPROVAL_STATUS,
         IFF(s.SCENARIO_TYPE = 'ACTUAL', sp.PERIOD_STATUS IN ('OPEN', 'IN_APPROVAL'),
         s.SCENARIO_STATUS = 'IN_APPROVAL')           AS IS_IN_PROGRESS,
@@ -24,27 +24,46 @@ src AS
     LEFT JOIN APP.T_F_SCENARIO_PERIOD sp 
         ON sp.SCENARIO_ID = i.SCENARIO_ID AND sp.PERIOD_KEY = i.PERIOD_KEY
 ),
-steps AS (       -- the step definitions in force for that month / budget year
-    SELECT src.*, st.STEP_ORDER, st.STEP_TITLE, st.APPROVER_ROLE,
-           (COALESCE(st.MANAGES_EMPLOYEE_CHECKS, FALSE) AND src.SCENARIO_TYPE = 'ACTUAL') AS MANAGES_EMPLOYEE_CHECKS
+steps AS 
+(       -- the step definitions in force for that month / budget year
+    SELECT 
+        src.*, 
+        st.STEP_ORDER, 
+        st.STEP_TITLE, 
+        st.APPROVER_ROLE,
+        (COALESCE(st.MANAGES_EMPLOYEE_CHECKS, FALSE) AND src.SCENARIO_TYPE = 'ACTUAL') AS MANAGES_EMPLOYEE_CHECKS
     FROM src
     JOIN APP.T_P_APPROVAL_STEP st
       ON st.IS_ACTIVE
      AND st.APPLIES_TO IN ('ALL', src.SCENARIO_TYPE)
      AND src.STEP_PERIOD_KEY BETWEEN st.VALID_FROM_PERIOD_KEY AND COALESCE(st.VALID_TO_PERIOD_KEY, 999912)
 ),
-state AS (       -- a step without a row in T_F_APPROVAL counts as PENDING
+state AS 
+(       -- a step without a row in T_F_APPROVAL counts as PENDING
     SELECT s.*,
            COALESCE(a.STEP_STATUS, 'PENDING') AS STEP_STATUS,
-           a.LAST_ACTION, a.ACTED_BY, a.ACTED_AT, a.STEP_COMMENT
+           a.LAST_ACTION, 
+           a.ACTED_BY, 
+           a.ACTED_AT, 
+           a.STEP_COMMENT
     FROM steps s
     LEFT JOIN APP.T_F_APPROVAL a
            ON a.SCENARIO_ID = s.SCENARIO_ID AND a.PERIOD_KEY = s.PERIOD_KEY AND a.STEP_ORDER = s.STEP_ORDER
 )
 SELECT
-    SCENARIO_ID, PERIOD_KEY, SCENARIO_TYPE, APPROVAL_STATUS, IS_IN_PROGRESS,
-    STEP_ORDER, STEP_TITLE, APPROVER_ROLE,
-    STEP_STATUS, LAST_ACTION, ACTED_BY, ACTED_AT, STEP_COMMENT,
+    SCENARIO_ID, 
+    PERIOD_KEY, 
+    SCENARIO_TYPE, 
+    APPROVAL_STATUS, 
+    IS_IN_PROGRESS,
+    STEP_ORDER, 
+    STEP_TITLE, 
+    APPROVER_ROLE,
+    STEP_STATUS, 
+    LAST_ACTION, 
+    ACTED_BY, 
+    ACTED_AT, 
+    STEP_COMMENT,
     STEP_ORDER = MIN(IFF(STEP_STATUS <> 'APPROVED', STEP_ORDER, NULL))
                  OVER (PARTITION BY SCENARIO_ID, PERIOD_KEY)                       AS IS_NEXT_STEP,
     MANAGES_EMPLOYEE_CHECKS

@@ -1,8 +1,13 @@
-
-CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_MONTH (
-    SCENARIO_ID, PERIOD_KEY, YEAR, MONTH_NUMBER, EMPLOYEE_ID, RESOURCE_CODE,
-    FULL_NAME COMMENT 'First and last name',
-    EMPLOYMENT_TYPE COMMENT 'Employment type of the contract version used that month',
+CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_MONTH 
+(
+    SCENARIO_ID, 
+    PERIOD_KEY, 
+    YEAR, 
+    MONTH_NUMBER, 
+    EMPLOYEE_ID, 
+    RESOURCE_CODE,
+    FULL_NAME            COMMENT 'First and last name',
+    EMPLOYMENT_TYPE      COMMENT 'Employment type of the contract version used that month',
     ENTITY_CODE, GROSS_PAY_USD, NSSF_EE_USD, NSSF_ER_USD, SALARY_TAX_USD, NET_PAY_USD,
     EMPLOYER_COST_USD,
     BONUS_USD             COMMENT 'BONUS pay line',

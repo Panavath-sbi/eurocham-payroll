@@ -1,5 +1,6 @@
 
-CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL_APPROVAL (
+CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL_APPROVAL 
+(
     "Title"           COMMENT 'Payroll month as YYYYMM, e.g. 202609',
     "Approval_Step"   COMMENT 'Step title, e.g. HR Manager',
     "Approved_By"     COMMENT 'Name of the approver who approved or rejected the step; empty while pending',
@@ -12,11 +13,13 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL_APPROVAL (
     "Year"            COMMENT 'Payroll year',
     "MonthNo"         COMMENT 'Payroll month number 1-12'
 )
-COPY GRANTS
 COMMENT = 'Power BI: Payroll_Approval (replaces the SharePoint approval list)'
 AS
-WITH assigned AS (         -- who holds each approver role today (one role per user)
-    SELECT u.ROLE_CODE, LISTAGG(u.USER_EMAIL, '; ') WITHIN GROUP (ORDER BY u.USER_EMAIL) AS EMAILS
+WITH assigned AS 
+(         -- who holds each approver role today (one role per user)
+    SELECT 
+        u.ROLE_CODE, 
+        LISTAGG(u.USER_EMAIL, '; ') WITHIN GROUP (ORDER BY u.USER_EMAIL) AS EMAILS
     FROM APP.T_D_APP_USER u
     WHERE u.IS_ACTIVE
     GROUP BY u.ROLE_CODE

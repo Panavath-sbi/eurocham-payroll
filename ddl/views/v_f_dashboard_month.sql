@@ -1,19 +1,29 @@
 
-CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH (
-    PERIOD_KEY, YEAR, MONTH_NUMBER, PERIOD_LABEL,
+CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH 
+(
+    PERIOD_KEY, 
+    YEAR, 
+    MONTH_NUMBER, 
+    PERIOD_LABEL,
     SHORT_LABEL        COMMENT 'Chart label, e.g. Oct''26',
     HEADCOUNT          COMMENT 'Employees paid in the actual payroll that month',
-    HEADCOUNT_ECCC, HEADCOUNT_CCIFC,
-    GROSS_USD, GROSS_ECCC_USD, GROSS_CCIFC_USD,
+    HEADCOUNT_ECCC, 
+    HEADCOUNT_CCIFC,
+    GROSS_USD, 
+    GROSS_ECCC_USD, 
+    GROSS_CCIFC_USD,
     NSSF_EE_USD        COMMENT 'Employee NSSF (pension)',
     NSSF_ER_USD        COMMENT 'Employer NSSF (pension, healthcare, occupational risk)',
     NSSF_USD           COMMENT 'Employee + employer NSSF',
-    NSSF_ECCC_USD, NSSF_CCIFC_USD,
+    NSSF_ECCC_USD, 
+    NSSF_CCIFC_USD,
     NET_USD            COMMENT 'Net pay to bank',
-    NET_ECCC_USD, NET_CCIFC_USD,
+    NET_ECCC_USD, 
+    NET_CCIFC_USD,
     TOS_USD            COMMENT 'Salary tax withheld, USD',
     TOS_KHR            COMMENT 'Salary tax withheld, KHR (as calculated)',
-    TOS_ECCC_KHR, TOS_CCIFC_KHR,
+    TOS_ECCC_KHR, 
+    TOS_CCIFC_KHR,
     FX_RATE_NBC        COMMENT 'NBC rate applied to the actual month (else the published rate)',
     BUDGET_GROSS_USD   COMMENT 'Gross pay of the official budget of that year',
     FORECAST_GROSS_USD COMMENT 'Gross pay of the latest forecast of that year'
@@ -21,7 +31,8 @@ CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH (
 COMMENT = 'Dashboard figures per calendar month: actual totals (total and per chamber), applied NBC rate, official budget and latest forecast gross pay.'
 AS
 WITH act AS (
-    SELECT s.PERIOD_KEY,
+    SELECT 
+           s.PERIOD_KEY,
            COUNT(DISTINCT s.EMPLOYEE_ID)                                        AS HC,
            COUNT(DISTINCT IFF(s.ENTITY_CODE = 'ECCC',  s.EMPLOYEE_ID, NULL))    AS HC_E,
            COUNT(DISTINCT IFF(s.ENTITY_CODE = 'CCIFC', s.EMPLOYEE_ID, NULL))    AS HC_C,

@@ -11,32 +11,40 @@ CREATE OR REPLACE VIEW RPT.V_F_PAYSLIP_DUE (
     TODAY_LOCAL                   COMMENT 'Today in Phnom Penh',
     ACTION                        COMMENT 'SEND, REMIND, OVERDUE, RUN_PROBLEM or NONE (see the file header)'
 )
-COPY GRANTS
 COMMENT = 'Payslip flow: one row per actual payroll month from 202610 to the current month, with its pay date and what the flow must do today.'
 AS
-WITH today AS (
-    SELECT CONVERT_TIMEZONE('Asia/Phnom_Penh', CURRENT_TIMESTAMP())::DATE AS D
+WITH today AS 
+(
+    SELECT 
+        CONVERT_TIMEZONE('Asia/Phnom_Penh', CURRENT_TIMESTAMP())::DATE AS D
 ),
-months AS (
-    SELECT p.PERIOD_KEY, p.MONTH_NAME || ' ' || p.YEAR AS PERIOD_LABEL,
-           CASE DAYOFWEEKISO(p.PERIOD_END_DATE)
+months AS 
+(
+    SELECT 
+        p.PERIOD_KEY, 
+        p.MONTH_NAME || ' ' || p.YEAR AS PERIOD_LABEL,
+        CASE DAYOFWEEKISO(p.PERIOD_END_DATE)
                WHEN 6 THEN DATEADD('day', -1, p.PERIOD_END_DATE)
                WHEN 7 THEN DATEADD('day', -2, p.PERIOD_END_DATE)
                ELSE p.PERIOD_END_DATE
-           END AS PAY_DATE
+        END AS PAY_DATE
     FROM APP.T_D_PERIOD p, today t
     WHERE p.PERIOD_KEY >= 202610                       -- START_PERIOD_KEY
-      AND p.PERIOD_START_DATE <= t.D
+    AND p.PERIOD_START_DATE <= t.D
 ),
-state AS (
-    SELECT m.PERIOD_KEY, m.PERIOD_LABEL, m.PAY_DATE,
-           DATEADD('day', -7, m.PAY_DATE)                                            AS REMIND_FROM,
-           COALESCE(sp.PERIOD_STATUS, 'NOT_OPENED')                                  AS PERIOD_STATUS,
-           CONVERT_TIMEZONE('Asia/Phnom_Penh', sp.FINALIZED_AT::TIMESTAMP_LTZ)::TIMESTAMP_NTZ AS FINALIZED_AT_LOCAL,
-           r.RUN_STATUS,
-           r.STARTED_AT                                                              AS RUN_STARTED_AT,
-           CONVERT_TIMEZONE('Asia/Phnom_Penh', r.STARTED_AT::TIMESTAMP_LTZ)::DATE   AS RUN_STARTED_LOCAL,
-           t.D                                                                       AS TODAY_LOCAL
+state AS 
+(
+    SELECT 
+        m.PERIOD_KEY, 
+        m.PERIOD_LABEL, 
+        m.PAY_DATE,
+        DATEADD('day', -7, m.PAY_DATE)                                            AS REMIND_FROM,
+        COALESCE(sp.PERIOD_STATUS, 'NOT_OPENED')                                  AS PERIOD_STATUS,
+        CONVERT_TIMEZONE('Asia/Phnom_Penh', sp.FINALIZED_AT::TIMESTAMP_LTZ)::TIMESTAMP_NTZ AS FINALIZED_AT_LOCAL,
+        r.RUN_STATUS,
+        r.STARTED_AT                                                              AS RUN_STARTED_AT,
+        CONVERT_TIMEZONE('Asia/Phnom_Penh', r.STARTED_AT::TIMESTAMP_LTZ)::DATE    AS RUN_STARTED_LOCAL,
+        t.D                                                                       AS TODAY_LOCAL
     FROM months m
     CROSS JOIN today t
     LEFT JOIN APP.T_D_SCENARIO s ON s.SCENARIO_TYPE = 'ACTUAL'
@@ -44,8 +52,15 @@ state AS (
     LEFT JOIN APP.T_F_PAYSLIP_RUN r      ON r.PERIOD_KEY = m.PERIOD_KEY
 )
 SELECT
-    PERIOD_KEY, PERIOD_LABEL, PAY_DATE, REMIND_FROM, PERIOD_STATUS, FINALIZED_AT_LOCAL,
-    RUN_STATUS, RUN_STARTED_AT, TODAY_LOCAL,
+    PERIOD_KEY, 
+    PERIOD_LABEL, 
+    PAY_DATE, 
+    REMIND_FROM, 
+    PERIOD_STATUS, 
+    FINALIZED_AT_LOCAL,
+    RUN_STATUS, 
+    RUN_STARTED_AT, 
+    TODAY_LOCAL,
     CASE
         WHEN RUN_STATUS = 'FAILED'
           OR (RUN_STATUS = 'SENDING' AND RUN_STARTED_LOCAL < TODAY_LOCAL)            THEN 'RUN_PROBLEM'
