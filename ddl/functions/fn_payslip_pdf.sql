@@ -37,7 +37,7 @@ FORMAT = {
 COPIES = {"Gross_USD_2": "Gross_USD", "Tax_USD_2": "Tax_USD", "Tax_USD_3": "Tax_USD",
           "ECCC_Total": "ECCC_Amount", "CCIFC_Total": "CCIFC_Amount", "EU_Gate_Total": "EU_Gate_Amount"}
 
-FORM_PATH = "@{{ database }}.APP.PAYSLIP_TEMPLATE/payslip_fillable.pdf"
+FORM_PATH = "@APP.PAYSLIP_TEMPLATE/payslip_fillable.pdf"
 _form = None
 
 def form():
