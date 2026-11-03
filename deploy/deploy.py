@@ -125,6 +125,10 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'procedures/sp_save_statutory_parameter.sql',
     'procedures/sp_save_working_days.sql',
     'procedures/sp_set_employee_active.sql',
+    # --- stages (run once; the files in them are uploaded by hand) ---
+    'stages/payslip_template.sql',
+    # --- functions ---
+    'functions/fn_payslip_pdf.sql',             # reads the payslip_template stage
 ]
 SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
 REPEATABLE = {'views', 'procedures', 'functions'}                   # CREATE OR REPLACE is safe to run again
@@ -157,7 +161,7 @@ def check_files():
             if d in pos and pos[d] > i:
                 problems.append(f'{f} is listed before {d}, which it depends on')
         c = code(text)
-        if '{{' in c:
+        if '{{' in re.sub(r'--[^\n]*|/\*.*?\*/', '', text, flags=re.S):   # also inside $$ bodies: nothing renders it
             problems.append(f'{f}: placeholder {{{{ }}}} (ddl files use real names)')
         if re.search(r'^\s*(USE|INSERT|MERGE|UPDATE|DELETE|TRUNCATE|GRANT|ALTER|EXECUTE\s+IMMEDIATE)\b', c, re.M | re.I):   # not EXECUTE AS CALLER
             problems.append(f'{f}: only the CREATE of the object belongs here; USE / DML / GRANT / ALTER go in dml/ (DROP + CREATE only when CREATE OR REPLACE is not possible)')
