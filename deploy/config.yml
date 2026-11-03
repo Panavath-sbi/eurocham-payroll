@@ -1,0 +1,6 @@
+uat:
+  database: DEV_PAYROLL_DB
+  role_owner: SF_APA_PAYROLL-DBA              # owner of the objects
+prod:
+  database: EUROCHAM_PAYROLL_DB
+  role_owner: EUROCHAM_PAYROLL-DBA              # owner of the objects
