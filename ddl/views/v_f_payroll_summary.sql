@@ -1,6 +1,4 @@
-
 CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_SUMMARY
-COPY GRANTS
 COMMENT = 'Grain: one row per scenario x period x employee. Totals aggregated from T_F_PAYROLL_LINE by pay component category.'
 AS
 SELECT

@@ -1,5 +1,6 @@
 
-CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYSLIP (
+CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYSLIP 
+(
     "Period_Key"             COMMENT 'Payroll month YYYYMM, e.g. 202610 (the report parameter PeriodKey)',
     "Year"                   COMMENT 'Calendar year of the payroll month',
     "Month_Number"           COMMENT 'Month number 1..12',
@@ -35,20 +36,32 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYSLIP (
     "ToS_Withheld_KHR"       COMMENT 'Salary tax KHR',
     "FX_USD_KHR"             COMMENT 'NBC USD-KHR rate applied to the payroll month'
 )
-COPY GRANTS
 COMMENT = 'Power BI: Payslip (finalized actual months, every year, employee x month); also the payslip flow''s employee list'
 AS
-WITH months AS (           -- finalized actual payroll months, every year
-    SELECT sp.SCENARIO_ID, sp.PERIOD_KEY, sp.WORKING_DAYS, sp.FX_RATE_NBC,
-           p.YEAR, p.MONTH_NUMBER, p.PERIOD_START_DATE
+WITH months AS 
+(           -- finalized actual payroll months, every year
+    SELECT 
+        sp.SCENARIO_ID, 
+        sp.PERIOD_KEY, 
+        sp.WORKING_DAYS, 
+        sp.FX_RATE_NBC,
+        p.YEAR, 
+        p.MONTH_NUMBER, 
+        p.PERIOD_START_DATE
     FROM APP.T_F_SCENARIO_PERIOD sp
-    JOIN APP.T_D_SCENARIO s ON s.SCENARIO_ID = sp.SCENARIO_ID AND s.SCENARIO_TYPE = 'ACTUAL'
-    JOIN APP.T_D_PERIOD p  ON p.PERIOD_KEY = sp.PERIOD_KEY
+    JOIN APP.T_D_SCENARIO s 
+        ON s.SCENARIO_ID = sp.SCENARIO_ID 
+        AND s.SCENARIO_TYPE = 'ACTUAL'
+    JOIN APP.T_D_PERIOD p  
+        ON p.PERIOD_KEY = sp.PERIOD_KEY
     WHERE sp.PERIOD_STATUS = 'FINALIZED'
 ),
-amounts AS (               -- one row per employee and month, pay components pivoted
+amounts AS 
+(               -- one row per employee and month, pay components pivoted
     SELECT
-        l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID,
+        l.SCENARIO_ID, 
+        l.PERIOD_KEY, 
+        l.EMPLOYEE_ID,
         MAX(l.ENTITY_CODE) AS ENTITY_CODE,
         -- USD
         ROUND(SUM(IFF(l.PAY_COMPONENT_CODE = 'BONUS',             l.AMOUNT_USD, 0)), 2) AS BONUS_USD,
@@ -68,45 +81,70 @@ amounts AS (               -- one row per employee and month, pay components piv
         ROUND(SUM(IFF(pc.CATEGORY = 'EARNING',                    l.AMOUNT_KHR, 0)), 0) AS GROSS_KHR,
         SUM(IFF(l.PAY_COMPONENT_CODE = 'TAX_CALC_BASE',           l.AMOUNT_KHR, 0))     AS TAX_CALC_BASE_KHR
     FROM APP.T_F_PAYROLL_LINE l
-    JOIN APP.T_D_PAY_COMPONENT pc ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
-    JOIN months m                  ON m.SCENARIO_ID = l.SCENARIO_ID AND m.PERIOD_KEY = l.PERIOD_KEY
+    JOIN APP.T_D_PAY_COMPONENT pc 
+        ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE
+    JOIN months m                  
+        ON m.SCENARIO_ID = l.SCENARIO_ID 
+        AND m.PERIOD_KEY = l.PERIOD_KEY
     GROUP BY l.SCENARIO_ID, l.PERIOD_KEY, l.EMPLOYEE_ID
 ),
-fund_raw AS (              -- fund shares 0..1 per employee and month; 0 when there is no fund split
-    SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, am.ENTITY_CODE,
-           COALESCE(SUM(IFF(fa.FUND_CODE = 'ECCC',    fa.SHARE_PCT / 100, 0)), 0) AS ECCC_RAW,
-           COALESCE(SUM(IFF(fa.FUND_CODE = 'CCIFC',   fa.SHARE_PCT / 100, 0)), 0) AS CCIFC_RAW,
-           COALESCE(SUM(IFF(fa.FUND_CODE = 'EU_GATE', fa.SHARE_PCT / 100, 0)), 0) AS EU_GATE_RAW
+fund_raw AS 
+(              -- fund shares 0..1 per employee and month; 0 when there is no fund split
+    SELECT 
+        am.SCENARIO_ID, 
+        am.PERIOD_KEY, 
+        am.EMPLOYEE_ID, 
+        am.ENTITY_CODE,
+        COALESCE(SUM(IFF(fa.FUND_CODE = 'ECCC',    fa.SHARE_PCT / 100, 0)), 0) AS ECCC_RAW,
+        COALESCE(SUM(IFF(fa.FUND_CODE = 'CCIFC',   fa.SHARE_PCT / 100, 0)), 0) AS CCIFC_RAW,
+        COALESCE(SUM(IFF(fa.FUND_CODE = 'EU_GATE', fa.SHARE_PCT / 100, 0)), 0) AS EU_GATE_RAW
     FROM amounts am
     LEFT JOIN APP.T_F_FUND_ALLOCATION fa
-           ON fa.SCENARIO_ID = am.SCENARIO_ID AND fa.PERIOD_KEY = am.PERIOD_KEY AND fa.EMPLOYEE_ID = am.EMPLOYEE_ID
+           ON fa.SCENARIO_ID = am.SCENARIO_ID 
+           AND fa.PERIOD_KEY = am.PERIOD_KEY 
+           AND fa.EMPLOYEE_ID = am.EMPLOYEE_ID
     GROUP BY am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, am.ENTITY_CODE
 ),
-fund_share AS (            -- any share without a fund goes to the employee's entity fund
-    SELECT f.SCENARIO_ID, f.PERIOD_KEY, f.EMPLOYEE_ID,
-           f.ECCC_RAW    + IFF(f.ENTITY_CODE = 'ECCC',  GREATEST(1 - f.ECCC_RAW - f.CCIFC_RAW - f.EU_GATE_RAW, 0), 0) AS ECCC_SHARE,
-           f.CCIFC_RAW   + IFF(f.ENTITY_CODE = 'CCIFC', GREATEST(1 - f.ECCC_RAW - f.CCIFC_RAW - f.EU_GATE_RAW, 0), 0) AS CCIFC_SHARE,
-           f.EU_GATE_RAW                                                                                               AS EU_GATE_SHARE
+fund_share AS 
+(            -- any share without a fund goes to the employee's entity fund
+    SELECT 
+        f.SCENARIO_ID, 
+        f.PERIOD_KEY, 
+        f.EMPLOYEE_ID,
+        f.ECCC_RAW    + IFF(f.ENTITY_CODE = 'ECCC',  GREATEST(1 - f.ECCC_RAW - f.CCIFC_RAW - f.EU_GATE_RAW, 0), 0) AS ECCC_SHARE,
+        f.CCIFC_RAW   + IFF(f.ENTITY_CODE = 'CCIFC', GREATEST(1 - f.ECCC_RAW - f.CCIFC_RAW - f.EU_GATE_RAW, 0), 0) AS CCIFC_SHARE,
+        f.EU_GATE_RAW                                                                                               AS EU_GATE_SHARE
     FROM fund_raw f
 ),
-month_contract AS (        -- contract version in force in the payroll month
-    SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, c.POSITION, c.TAX_STATUS,
-           COALESCE(c.DEPENDANT_CHILDREN, 0) + COALESCE(c.DEPENDANT_SPOUSE::INT, 0) AS DEP_COUNT
+month_contract AS 
+(        -- contract version in force in the payroll month
+    SELECT 
+        am.SCENARIO_ID, 
+        am.PERIOD_KEY, 
+        am.EMPLOYEE_ID, 
+        c.POSITION, 
+        c.TAX_STATUS,
+        COALESCE(c.DEPENDANT_CHILDREN, 0) + COALESCE(c.DEPENDANT_SPOUSE::INT, 0) AS DEP_COUNT
     FROM amounts am
     JOIN APP.T_D_EMPLOYEE_CONTRACT c
-      ON c.EMPLOYEE_ID = am.EMPLOYEE_ID
-     AND c.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
-     AND (c.VALID_TO_PERIOD_KEY IS NULL OR c.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
+        ON c.EMPLOYEE_ID = am.EMPLOYEE_ID
+        AND c.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
+        AND (c.VALID_TO_PERIOD_KEY IS NULL OR c.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
     QUALIFY ROW_NUMBER() OVER (PARTITION BY am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID
                                ORDER BY c.VALID_FROM_PERIOD_KEY DESC) = 1
 ),
 tax_rate AS (              -- highest bracket whose lower bound the taxable base exceeds
-    SELECT am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID, tb.TAX_RATE
+    SELECT 
+        am.SCENARIO_ID, 
+        am.PERIOD_KEY, 
+        am.EMPLOYEE_ID, 
+        tb.TAX_RATE
     FROM amounts am
     JOIN APP.T_P_TAX_BRACKET tb
-      ON tb.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
-     AND (tb.VALID_TO_PERIOD_KEY IS NULL OR tb.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
-     AND am.TAX_CALC_BASE_KHR > tb.LOWER_BOUND_KHR
+        ON tb.VALID_FROM_PERIOD_KEY <= am.PERIOD_KEY
+        AND (tb.VALID_TO_PERIOD_KEY IS NULL 
+        OR tb.VALID_TO_PERIOD_KEY >= am.PERIOD_KEY)
+        AND am.TAX_CALC_BASE_KHR > tb.LOWER_BOUND_KHR
     QUALIFY ROW_NUMBER() OVER (PARTITION BY am.SCENARIO_ID, am.PERIOD_KEY, am.EMPLOYEE_ID
                                ORDER BY tb.BRACKET_NUMBER DESC) = 1
 )
