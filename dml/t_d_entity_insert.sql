@@ -1,0 +1,12 @@
+EXECUTE IMMEDIATE $$
+DECLARE
+    n INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO :n FROM APP.T_D_ENTITY;
+    IF (n = 0) THEN
+        INSERT INTO APP.T_D_ENTITY (ENTITY_CODE, ENTITY_NAME) VALUES
+            ('ECCC',  'EuroCham Cambodia'),
+            ('CCIFC', 'CCIFC');
+    END IF;
+END;
+$$;
