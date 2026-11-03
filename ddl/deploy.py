@@ -243,6 +243,9 @@ def deploy_all(env='uat', only=None, run=False, session=None):
         return
     from snowflake.connector.util_text import split_statements     # keeps $$ bodies whole
     session = session or get_session()
+    cfg = load_cfg(env)                                              # procedure files carry no USE lines: set role and database here
+    session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+    session.sql(f'USE DATABASE {cfg["database"]}').collect()
     for name, sql in rendered.items():
         print(f'\n{name} ({env})')
         for stmt, _ in split_statements(io.StringIO(sql), remove_comments=True):

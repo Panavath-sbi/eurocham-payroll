@@ -1,60 +1,3 @@
--- depends_on: T_F_SCENARIO_PERIOD, T_P_STATUTORY_PARAMETER, T_P_TAX_BRACKET, T_F_PAYROLL_LINE, T_D_SCENARIO, T_D_PERIOD, T_D_EMPLOYEE_CONTRACT, T_D_SCENARIO_EMPLOYEE, T_F_PAYROLL_INPUT
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_CALC_PERIOD
-   Internal: calculates the pay lines of one scenario period.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
-   2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
-   2026-10-02  V1.5.0: payroll adjustments removed (no ADJUSTMENT line); cost allocation is
-               no longer stored (RPT.V_F_COST_ALLOCATION calculates it); CORE -> APP.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CONVENTIONS
-   -----------
-   * Every public procedure takes P_USER_EMAIL (the Power Apps user, passed by Power
-     Automate), checks the user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Every public procedure returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-     Power Automate returns it to the app as is.
-   * Validations run before any write. Writes run in one transaction; any error rolls
-     the whole call back.
-   * Currency rule: earnings are calculated in USD and converted to KHR at the NBC rate
-     (from the unrounded USD). NSSF and salary tax are calculated in KHR and converted
-     back to USD, rounded to the cent. Net pay USD = gross USD - deductions USD.
-
-   CALCULATION RULES (from the current DEV system - verify)
-   ---------------------------------------------------------
-   Daily rate          = salary / working days of the scenario period
-   Unpaid leave        = daily rate x absence days (negative earning)
-   Overtime            = daily rate x overtime days x OVERTIME_MULTIPLIER
-   Outstanding leave   = daily rate x outstanding days
-   Seniority (Jun/Dec) = average (salary + bonus) over the half-year / working days
-                         x SENIORITY_DAYS_PER_PAYMENT
-   NSSF base (KHR)     = (salary + seniority) x NSSF rate, between floor and cap
-   Taxable base (KHR)  = taxable earnings - seniority exemption - employee NSSF
-   Resident tax        = bracket rate x (taxable base - dependant relief) - deduction
-   Non-resident tax    = flat rate x taxable base, no dependant relief
-
-   KNOWN LIMITS (to be decided)
-   ----------------------------
-   * Seniority eligibility (minimum service) is not checked.
-   * Fringe benefit tax is not calculated; fringe benefits are an employer cost only.
-   * Allocated cost (RPT.V_F_COST_ALLOCATION) is rounded per fund x department row, so
-     splits can differ from the employee total by a cent.
-   * Budget / forecast employees with no input row for a month are included by default.
-   ===================================================================================== */
-/* =====================================================================================
-   SP_CALC_PERIOD (internal)
-   Rewrites T_F_PAYROLL_LINE for one scenario period.
-   No transaction and no role check: only called by the procedures below, inside
-   their own transaction. Raises an error instead of returning one.
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_CALC_PERIOD(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT)
 COPY GRANTS
 RETURNS VARIANT
@@ -128,7 +71,7 @@ BEGIN
     ),
     terms AS (   -- employee terms: contracts for ACTUAL, scenario employees otherwise
         SELECT c.EMPLOYEE_ID, c.CONTRACT_ID AS VERSION_KEY, c.ENTITY_CODE,
-               c.MONTHLY_SALARY_USD AS SALARY, c.TAX_STATUS,
+               c.MONTHLY_SALARY_USD AS SALARY, c.TAX_STATUS, c.CONTRACT_TYPE,
                c.DEPENDANT_CHILDREN + c.DEPENDANT_SPOUSE AS DEPENDANTS,
                c.INSURANCE_USD, c.VISA_USD, c.WORK_PERMIT_USD, c.FRINGE_BENEFIT_USD
         FROM APP.T_D_EMPLOYEE_CONTRACT c
@@ -138,7 +81,7 @@ BEGIN
         SELECT se.EMPLOYEE_ID, COALESCE(se.SOURCE_CONTRACT_ID, -1), se.ENTITY_CODE,
                IFF(se.REVALUATION_PERIOD_KEY IS NOT NULL AND sp.PERIOD_KEY >= se.REVALUATION_PERIOD_KEY,
                    se.FINAL_SALARY_USD, se.MONTHLY_SALARY_USD),
-               se.TAX_STATUS, se.DEPENDANT_CHILDREN + se.DEPENDANT_SPOUSE,
+               se.TAX_STATUS, se.CONTRACT_TYPE, se.DEPENDANT_CHILDREN + se.DEPENDANT_SPOUSE,
                se.INSURANCE_USD, se.VISA_USD, se.WORK_PERMIT_USD, se.FRINGE_BENEFIT_USD
         FROM APP.T_D_SCENARIO_EMPLOYEE se
         JOIN sp ON sp.SCENARIO_ID = se.SCENARIO_ID AND sp.SCENARIO_TYPE <> 'ACTUAL'
@@ -192,7 +135,7 @@ BEGIN
             DAILY * OT_DAYS * prm.OT_MULT                       AS OT,
             DAILY * OUT_DAYS                                    AS OUTST,
             i.BONUS_USD                                         AS BONUS,
-            IFF(sp.IS_SENIORITY_MONTH,
+            IFF(sp.IS_SENIORITY_MONTH AND COALESCE(t.CONTRACT_TYPE, 'UDC') <> 'FDC',
                 (COALESCE(h.PRIOR_USD, 0) + SAL + BONUS) / (COALESCE(h.PRIOR_MONTHS, 0) + 1)
                     / NULLIF(WD, 0) * prm.SEN_DAYS,
                 0)                                              AS SEN,

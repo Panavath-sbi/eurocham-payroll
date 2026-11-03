@@ -1,39 +1,3 @@
--- depends_on: T_D_APP_USER, T_D_EMPLOYEE, T_D_SCENARIO, T_F_SCENARIO_PERIOD, T_D_EMPLOYEE_CONTRACT, T_F_PAYROLL_INPUT, SP_RESET_APPROVALS, SP_CALC_PERIOD, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_SET_EMPLOYEE_ACTIVE
-   Activates or deactivates an employee from the open month onwards (never deleted).
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version.
-   2026-10-02  V1.5.0: role check reads T_D_APP_USER.ROLE_CODE (one role per user).
-   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
-               only approvals are limited by role.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CALLED FROM
-   -----------
-   Employee Register: the Active toggle.
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL (the Power Apps user, passed by Power Automate), checks the
-     user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   Deactivate: the employee leaves the open payroll month immediately (INCLUDE_IN_PAYROLL
-   = FALSE) and is not added to later months until reactivated.
-   Activate: the employee rejoins the open month (if their contract covers it) and later months.
-   Finalized months, budgets and forecasts are not changed.
-   If the open month changes, its approvals reset and it is recalculated.
-   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_SET_EMPLOYEE_ACTIVE(P_USER_EMAIL TEXT, P_EMPLOYEE_ID INT, P_IS_ACTIVE BOOLEAN)
 COPY GRANTS
 RETURNS VARIANT

@@ -1,51 +1,3 @@
--- depends_on: T_D_SCENARIO, T_F_SCENARIO_PERIOD, T_D_APP_USER, T_F_PAYROLL_INPUT, T_D_EMPLOYEE, T_D_EMPLOYEE_CONTRACT, T_D_SCENARIO_EMPLOYEE, T_F_CHANGE_LOG, T_F_APPROVAL, SP_CALC_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_SAVE_MONTHLY_INPUT
-   Saves monthly inputs for one scenario period.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
-   2026-09-29  Fix: COMMENT moved before EXECUTE AS (Snowflake clause order).
-   2026-10-02  Approval reset uses APP.T_F_APPROVAL_STEP_STATE (no more action log) and is
-               written to T_F_CHANGE_LOG.
-   2026-10-02  V1.5.0: approvals in APP.T_F_APPROVAL; changed employees' checks (on their
-               input row) go back to PENDING with the comment cleared; CORE -> APP;
-               one role per user.
-   2026-10-06  V1.7.0 roles: any active app user may call this (ADMIN or LEVEL_1-3);
-               only approvals are limited by role.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CONVENTIONS
-   -----------
-   * Every public procedure takes P_USER_EMAIL (the Power Apps user, passed by Power
-     Automate), checks the user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Every public procedure returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-     Power Automate returns it to the app as is.
-   * Validations run before any write. Writes run in one transaction; any error rolls
-     the whole call back.
-   * Currency rule: earnings are calculated in USD and converted to KHR at the NBC rate
-     (from the unrounded USD). NSSF and salary tax are calculated in KHR and converted
-     back to USD, rounded to the cent. Net pay USD = gross USD - deductions USD.
-
-   ===================================================================================== */
-/* =====================================================================================
-   SP_SAVE_MONTHLY_INPUT (public) - Monthly Inputs grid, Budget / Forecast "Show Details"
-   P_INPUTS is a JSON array, one object per employee. Keys left out keep their current
-   value; for the two overrides, an explicit null clears the override:
-   [{"employee_id": 7, "absence_days": 2, "overtime_days": 0, "outstanding_days": 0,
-     "bonus_usd": 0, "include_in_payroll": true, "notes": "...",
-     "salary_override_usd": null, "fringe_benefit_override_usd": null}]
-   Role: any active app user (ADMIN, LEVEL_1, LEVEL_2 or LEVEL_3).
-   ACTUAL: period must be OPEN or IN_APPROVAL; overrides are not allowed; a change resets
-   started approvals (approved steps go back to PENDING + the changed employees' checks).
-   BUDGET / FORECAST: scenario must be DRAFT or REJECTED and the period DRAFT.
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_SAVE_MONTHLY_INPUT(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT, P_INPUTS TEXT)
 COPY GRANTS
 RETURNS VARIANT
@@ -66,6 +18,7 @@ DECLARE
     v_unknown     INT;
     v_overrides   INT;
     v_changed     INT;
+    v_new         TEXT;   -- JSON array: one object per employee (EMPLOYEE_ID, ROW_EXISTS, CHANGED, OLD_VALUES, NEW_VALUES)
 BEGIN
     -- Scenario and period
     SELECT MAX(s.SCENARIO_TYPE), MAX(s.SCENARIO_STATUS), MAX(x.PERIOD_STATUS), MAX(x.WORKING_DAYS)
@@ -96,47 +49,49 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'This scenario is ' || v_scen_status || ' and cannot be edited.');
     END IF;
 
-    -- Stage the incoming rows merged with the current values (DDL: before the transaction)
-    CREATE OR REPLACE TEMPORARY TABLE APP.TMP_PAYROLL_INPUT AS
-    SELECT
-        j.VALUE:employee_id::INT                                                           AS EMPLOYEE_ID,
-        COALESCE(j.VALUE:include_in_payroll::BOOLEAN, t.INCLUDE_IN_PAYROLL, TRUE)          AS INCLUDE_IN_PAYROLL,
-        COALESCE(j.VALUE:absence_days::FLOAT,     t.ABSENCE_DAYS, 0)                       AS ABSENCE_DAYS,
-        COALESCE(j.VALUE:overtime_days::FLOAT,    t.OVERTIME_DAYS, 0)                      AS OVERTIME_DAYS,
-        COALESCE(j.VALUE:outstanding_days::FLOAT, t.OUTSTANDING_DAYS, 0)                   AS OUTSTANDING_DAYS,
-        COALESCE(j.VALUE:bonus_usd::FLOAT,        t.BONUS_USD, 0)                          AS BONUS_USD,
-        IFF(IS_NULL_VALUE(j.VALUE:salary_override_usd), NULL,
-            COALESCE(j.VALUE:salary_override_usd::FLOAT, t.SALARY_OVERRIDE_USD))           AS SALARY_OVERRIDE_USD,
-        IFF(IS_NULL_VALUE(j.VALUE:fringe_benefit_override_usd), NULL,
-            COALESCE(j.VALUE:fringe_benefit_override_usd::FLOAT, t.FRINGE_BENEFIT_OVERRIDE_USD)) AS FRINGE_BENEFIT_OVERRIDE_USD,
-        COALESCE(j.VALUE:notes::TEXT, t.NOTES)                                             AS NOTES,
-        t.EMPLOYEE_ID IS NOT NULL                                                          AS ROW_EXISTS,
-        OBJECT_CONSTRUCT_KEEP_NULL(
-            'INCLUDE_IN_PAYROLL', t.INCLUDE_IN_PAYROLL, 'ABSENCE_DAYS', t.ABSENCE_DAYS,
-            'OVERTIME_DAYS', t.OVERTIME_DAYS, 'OUTSTANDING_DAYS', t.OUTSTANDING_DAYS,
-            'BONUS_USD', t.BONUS_USD, 'SALARY_OVERRIDE_USD', t.SALARY_OVERRIDE_USD,
-            'FRINGE_BENEFIT_OVERRIDE_USD', t.FRINGE_BENEFIT_OVERRIDE_USD, 'NOTES', t.NOTES)  AS OLD_VALUES
-    FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:P_INPUTS))) j
-    LEFT JOIN APP.T_F_PAYROLL_INPUT t
-           ON t.SCENARIO_ID = :P_SCENARIO_ID AND t.PERIOD_KEY = :P_PERIOD_KEY
-          AND t.EMPLOYEE_ID = j.VALUE:employee_id::INT;
-
-    ALTER TABLE APP.TMP_PAYROLL_INPUT ADD COLUMN NEW_VALUES VARIANT;
-    UPDATE APP.TMP_PAYROLL_INPUT SET NEW_VALUES = OBJECT_CONSTRUCT_KEEP_NULL(
-        'INCLUDE_IN_PAYROLL', INCLUDE_IN_PAYROLL, 'ABSENCE_DAYS', ABSENCE_DAYS,
-        'OVERTIME_DAYS', OVERTIME_DAYS, 'OUTSTANDING_DAYS', OUTSTANDING_DAYS,
-        'BONUS_USD', BONUS_USD, 'SALARY_OVERRIDE_USD', SALARY_OVERRIDE_USD,
-        'FRINGE_BENEFIT_OVERRIDE_USD', FRINGE_BENEFIT_OVERRIDE_USD, 'NOTES', NOTES);
-
-    -- Validations
+    -- The incoming rows merged with the current values, checked, and kept in v_new
     SELECT COUNT(*),
            COUNT_IF(EMPLOYEE_ID IS NULL OR ABSENCE_DAYS < 0 OR OVERTIME_DAYS < 0 OR OUTSTANDING_DAYS < 0
                     OR BONUS_USD < 0 OR ABSENCE_DAYS > :v_wd
                     OR COALESCE(SALARY_OVERRIDE_USD, 0) < 0 OR COALESCE(FRINGE_BENEFIT_OVERRIDE_USD, 0) < 0),
            COUNT(*) - COUNT(DISTINCT EMPLOYEE_ID),
-           COUNT_IF(SALARY_OVERRIDE_USD IS NOT NULL OR FRINGE_BENEFIT_OVERRIDE_USD IS NOT NULL)
-      INTO :v_rows, :v_bad, :v_dupes, :v_overrides
-    FROM APP.TMP_PAYROLL_INPUT;
+           COUNT_IF(SALARY_OVERRIDE_USD IS NOT NULL OR FRINGE_BENEFIT_OVERRIDE_USD IS NOT NULL),
+           COUNT_IF(NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES),
+           TO_JSON(ARRAY_AGG(OBJECT_CONSTRUCT_KEEP_NULL(
+               'EMPLOYEE_ID', EMPLOYEE_ID, 'ROW_EXISTS', ROW_EXISTS,
+               'CHANGED', NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES,
+               'OLD_VALUES', OLD_VALUES, 'NEW_VALUES', NEW_VALUES)))
+      INTO :v_rows, :v_bad, :v_dupes, :v_overrides, :v_changed, :v_new
+    FROM (
+        SELECT m.*,
+               OBJECT_CONSTRUCT_KEEP_NULL(
+                   'INCLUDE_IN_PAYROLL', INCLUDE_IN_PAYROLL, 'ABSENCE_DAYS', ABSENCE_DAYS,
+                   'OVERTIME_DAYS', OVERTIME_DAYS, 'OUTSTANDING_DAYS', OUTSTANDING_DAYS,
+                   'BONUS_USD', BONUS_USD, 'SALARY_OVERRIDE_USD', SALARY_OVERRIDE_USD,
+                   'FRINGE_BENEFIT_OVERRIDE_USD', FRINGE_BENEFIT_OVERRIDE_USD, 'NOTES', NOTES) AS NEW_VALUES
+        FROM (
+            SELECT
+                j.VALUE:employee_id::INT                                                           AS EMPLOYEE_ID,
+                COALESCE(j.VALUE:include_in_payroll::BOOLEAN, t.INCLUDE_IN_PAYROLL, TRUE)          AS INCLUDE_IN_PAYROLL,
+                COALESCE(j.VALUE:absence_days::FLOAT,     t.ABSENCE_DAYS, 0)                       AS ABSENCE_DAYS,
+                COALESCE(j.VALUE:overtime_days::FLOAT,    t.OVERTIME_DAYS, 0)                      AS OVERTIME_DAYS,
+                COALESCE(j.VALUE:outstanding_days::FLOAT, t.OUTSTANDING_DAYS, 0)                   AS OUTSTANDING_DAYS,
+                COALESCE(j.VALUE:bonus_usd::FLOAT,        t.BONUS_USD, 0)                          AS BONUS_USD,
+                IFF(IS_NULL_VALUE(j.VALUE:salary_override_usd), NULL,
+                    COALESCE(j.VALUE:salary_override_usd::FLOAT, t.SALARY_OVERRIDE_USD))           AS SALARY_OVERRIDE_USD,
+                IFF(IS_NULL_VALUE(j.VALUE:fringe_benefit_override_usd), NULL,
+                    COALESCE(j.VALUE:fringe_benefit_override_usd::FLOAT, t.FRINGE_BENEFIT_OVERRIDE_USD)) AS FRINGE_BENEFIT_OVERRIDE_USD,
+                COALESCE(j.VALUE:notes::TEXT, t.NOTES)                                             AS NOTES,
+                t.EMPLOYEE_ID IS NOT NULL                                                          AS ROW_EXISTS,
+                OBJECT_CONSTRUCT_KEEP_NULL(
+                    'INCLUDE_IN_PAYROLL', t.INCLUDE_IN_PAYROLL, 'ABSENCE_DAYS', t.ABSENCE_DAYS,
+                    'OVERTIME_DAYS', t.OVERTIME_DAYS, 'OUTSTANDING_DAYS', t.OUTSTANDING_DAYS,
+                    'BONUS_USD', t.BONUS_USD, 'SALARY_OVERRIDE_USD', t.SALARY_OVERRIDE_USD,
+                    'FRINGE_BENEFIT_OVERRIDE_USD', t.FRINGE_BENEFIT_OVERRIDE_USD, 'NOTES', t.NOTES)  AS OLD_VALUES
+            FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:P_INPUTS))) j
+            LEFT JOIN APP.T_F_PAYROLL_INPUT t
+                   ON t.SCENARIO_ID = :P_SCENARIO_ID AND t.PERIOD_KEY = :P_PERIOD_KEY
+                  AND t.EMPLOYEE_ID = j.VALUE:employee_id::INT) m);
 
     IF (v_rows = 0) THEN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', 'No input rows received.');
@@ -153,7 +108,7 @@ BEGIN
 
     -- Employees must belong to the payroll: a valid contract (ACTUAL) or the scenario (BUDGET / FORECAST)
     SELECT COUNT(*) INTO :v_unknown
-    FROM APP.TMP_PAYROLL_INPUT x
+    FROM (SELECT VALUE:EMPLOYEE_ID::INT AS EMPLOYEE_ID FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:v_new)))) x
     WHERE (:v_type = 'ACTUAL' AND NOT EXISTS (
               SELECT 1 FROM APP.T_D_EMPLOYEE e
               JOIN APP.T_D_EMPLOYEE_CONTRACT c ON c.EMPLOYEE_ID = e.EMPLOYEE_ID
@@ -166,9 +121,7 @@ BEGIN
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', v_unknown || ' employee(s) are not part of this payroll.');
     END IF;
 
-    SELECT COUNT_IF(NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES) INTO :v_changed FROM APP.TMP_PAYROLL_INPUT;
     IF (v_changed = 0) THEN
-        DROP TABLE IF EXISTS APP.TMP_PAYROLL_INPUT;
         RETURN OBJECT_CONSTRUCT('status', 'OK', 'message', 'No changes to save.');
     END IF;
 
@@ -177,16 +130,26 @@ BEGIN
     -- Audit first (old vs new), only for rows that actually change
     INSERT INTO APP.T_F_CHANGE_LOG (TABLE_NAME, RECORD_KEY, CHANGE_TYPE, OLD_VALUES, NEW_VALUES, CHANGED_BY, INSERT_BY, UPDATE_BY)
     SELECT 'APP.T_F_PAYROLL_INPUT',
-           OBJECT_CONSTRUCT('SCENARIO_ID', :P_SCENARIO_ID, 'PERIOD_KEY', :P_PERIOD_KEY, 'EMPLOYEE_ID', EMPLOYEE_ID),
-           IFF(ROW_EXISTS, 'UPDATE', 'INSERT'),
-           IFF(ROW_EXISTS, OLD_VALUES, NULL),
-           NEW_VALUES,
+           OBJECT_CONSTRUCT('SCENARIO_ID', :P_SCENARIO_ID, 'PERIOD_KEY', :P_PERIOD_KEY, 'EMPLOYEE_ID', VALUE:EMPLOYEE_ID::INT),
+           IFF(VALUE:ROW_EXISTS::BOOLEAN, 'UPDATE', 'INSERT'),
+           IFF(VALUE:ROW_EXISTS::BOOLEAN, VALUE:OLD_VALUES, NULL),
+           VALUE:NEW_VALUES,
            :P_USER_EMAIL, :P_USER_EMAIL, :P_USER_EMAIL
-    FROM APP.TMP_PAYROLL_INPUT
-    WHERE NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES;
+    FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:v_new)))
+    WHERE VALUE:CHANGED::BOOLEAN;
 
     MERGE INTO APP.T_F_PAYROLL_INPUT t
-    USING (SELECT * FROM APP.TMP_PAYROLL_INPUT WHERE NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES) s
+    USING (SELECT VALUE:EMPLOYEE_ID::INT                                AS EMPLOYEE_ID,
+                  VALUE:NEW_VALUES:INCLUDE_IN_PAYROLL::BOOLEAN          AS INCLUDE_IN_PAYROLL,
+                  VALUE:NEW_VALUES:ABSENCE_DAYS::FLOAT                  AS ABSENCE_DAYS,
+                  VALUE:NEW_VALUES:OVERTIME_DAYS::FLOAT                 AS OVERTIME_DAYS,
+                  VALUE:NEW_VALUES:OUTSTANDING_DAYS::FLOAT              AS OUTSTANDING_DAYS,
+                  VALUE:NEW_VALUES:BONUS_USD::FLOAT                     AS BONUS_USD,
+                  VALUE:NEW_VALUES:SALARY_OVERRIDE_USD::FLOAT           AS SALARY_OVERRIDE_USD,
+                  VALUE:NEW_VALUES:FRINGE_BENEFIT_OVERRIDE_USD::FLOAT   AS FRINGE_BENEFIT_OVERRIDE_USD,
+                  VALUE:NEW_VALUES:NOTES::TEXT                          AS NOTES
+           FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:v_new)))
+           WHERE VALUE:CHANGED::BOOLEAN) s
        ON t.SCENARIO_ID = :P_SCENARIO_ID AND t.PERIOD_KEY = :P_PERIOD_KEY AND t.EMPLOYEE_ID = s.EMPLOYEE_ID
     WHEN MATCHED THEN UPDATE SET
         INCLUDE_IN_PAYROLL          = s.INCLUDE_IN_PAYROLL,
@@ -231,8 +194,8 @@ BEGIN
             UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
         WHERE SCENARIO_ID = :P_SCENARIO_ID AND PERIOD_KEY = :P_PERIOD_KEY
           AND COALESCE(CHECK_STATUS, 'PENDING') <> 'PENDING'
-          AND EMPLOYEE_ID IN (SELECT EMPLOYEE_ID FROM APP.TMP_PAYROLL_INPUT
-                              WHERE NOT ROW_EXISTS OR OLD_VALUES <> NEW_VALUES);
+          AND EMPLOYEE_ID IN (SELECT VALUE:EMPLOYEE_ID::INT FROM TABLE(FLATTEN(INPUT => PARSE_JSON(:v_new)))
+                              WHERE VALUE:CHANGED::BOOLEAN);
 
         UPDATE APP.T_F_SCENARIO_PERIOD
         SET PERIOD_STATUS = 'OPEN', UPDATE_DATE = CURRENT_TIMESTAMP, UPDATE_BY = :P_USER_EMAIL
@@ -242,12 +205,10 @@ BEGIN
     CALL APP.SP_CALC_PERIOD(:P_USER_EMAIL, :P_SCENARIO_ID, :P_PERIOD_KEY);
 
     COMMIT;
-    DROP TABLE IF EXISTS APP.TMP_PAYROLL_INPUT;
     RETURN OBJECT_CONSTRUCT('status', 'OK', 'message', v_changed || ' employee(s) updated and payroll recalculated.');
 EXCEPTION
     WHEN OTHER THEN
         ROLLBACK;
-        DROP TABLE IF EXISTS APP.TMP_PAYROLL_INPUT;
         RETURN OBJECT_CONSTRUCT('status', 'ERROR', 'message', SQLERRM, 'code', SQLCODE);
 END;
 $$;

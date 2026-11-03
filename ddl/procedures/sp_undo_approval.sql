@@ -1,38 +1,3 @@
--- depends_on: T_D_SCENARIO, V_F_APPROVAL_PROGRESS, T_D_APP_USER, T_F_APPROVAL, T_F_SCENARIO_PERIOD, T_F_CHANGE_LOG
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_UNDO_APPROVAL
-   Undoes the most recent approval of a payroll month or a budget.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version.
-   2026-10-02  Sets the step back to PENDING in APP.T_F_APPROVAL_STEP_STATE (no more action log).
-   2026-10-02  V1.5.0: identified by scenario + period instead of a request id; state in
-               APP.T_F_APPROVAL; one role per user (T_D_APP_USER.ROLE_CODE).
-   2026-10-06  V1.7.0 roles: the step's level (LEVEL_1 / LEVEL_2 / LEVEL_3) or ADMIN may act.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CALLED FROM
-   -----------
-   Monthly Inputs, Approval page, Budget Approval page ("Undo Approval").
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL (the Power Apps user, passed by Power Automate), checks the
-     user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   P_SCENARIO_ID / P_PERIOD_KEY: as for SP_APPROVE_STEP (0 or NULL = a whole budget).
-   Rules: the approval is in progress (a finalized payroll or an approved budget cannot be
-   undone); the step is APPROVED and no later step is approved; the user's role is the
-   step's APPROVER_ROLE. When no approved step remains, a payroll month goes back to OPEN.
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_UNDO_APPROVAL(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT, P_STEP_ORDER INT)
 COPY GRANTS
 RETURNS VARIANT

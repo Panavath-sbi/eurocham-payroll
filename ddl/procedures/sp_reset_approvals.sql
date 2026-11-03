@@ -1,39 +1,3 @@
--- depends_on: T_F_SCENARIO_PERIOD, T_D_SCENARIO, T_F_CHANGE_LOG, T_F_APPROVAL, T_F_PAYROLL_INPUT
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   SP_RESET_APPROVALS
-   Internal: restarts started approvals after payroll numbers change.
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version.
-   2026-10-02  Approved steps go back to PENDING in APP.T_F_APPROVAL_STEP_STATE; each reset
-               is written to T_F_CHANGE_LOG. Employee checks have no step column any more.
-   2026-10-02  V1.5.0: approvals in APP.T_F_APPROVAL (by scenario + period); employee checks
-               on T_F_PAYROLL_INPUT (status back to PENDING, comment cleared). Only acts on
-               a payroll month that is OPEN or IN_APPROVAL.
-   2026-10-19  Own file for DLSync: no USE DATABASE, names qualified with ${DB}, COPY GRANTS
-               keeps the app's USAGE grant when the procedure is replaced.
-
-   CALLED FROM
-   -----------
-   SP_SAVE_MONTHLY_INPUT-style save procedures (contract, allocations, employees, FX, working days).
-
-   CONVENTIONS
-   -----------
-   * Takes P_USER_EMAIL (the Power Apps user, passed by Power Automate), checks the
-     user role, writes INSERT_BY / UPDATE_BY and T_F_CHANGE_LOG.
-   * Returns a VARIANT: {"status": "OK" | "ERROR", "message": "..."}.
-   * Validations run before any write; writes run in one transaction.
-
-   No role check and no transaction: only called inside another procedure's transaction.
-   Acts only on an actual payroll month that is OPEN or IN_APPROVAL (budgets in approval
-   cannot be edited, so they never need a reset).
-   P_EMPLOYEE_IDS: JSON array of employee ids whose checks go back to PENDING; NULL = all.
-   ===================================================================================== */
 CREATE OR REPLACE PROCEDURE APP.SP_RESET_APPROVALS(P_USER_EMAIL TEXT, P_SCENARIO_ID INT, P_PERIOD_KEY INT, P_EMPLOYEE_IDS TEXT, P_REASON TEXT)
 COPY GRANTS
 RETURNS VARIANT
