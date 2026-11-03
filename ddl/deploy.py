@@ -7,8 +7,13 @@ missing, none unknown) and that no script is listed before one named in its `-- 
 Terminal (needs: pip install pyyaml):
     python deploy.py uat                          # print every rendered script, in order (nothing runs)
     python deploy.py uat tables                   # one folder       (or one script: t_d_entity)
-    python deploy.py uat views --run -c myconn    # run it with the Snowflake CLI (`snow`)
+    python deploy.py uat views --run -c myconn    # run it (Snowpark, connection from the Snowflake CLI config)
     python deploy.py prod --run -c prodconn       # run everything
+    python deploy.py prod --verify -c prodconn    # only the verification (read-only)
+GitHub Actions: no -c; the connection comes from the SNOWFLAKE_ACCOUNT / _USER / _PASSWORD environment variables.
+
+Every run ends with a read-only verification: every DEPLOY_ORDER object exists, every view compiles, and APP / RPT
+hold nothing else. It prints DEPLOYMENT CONFIRMED, or DEPLOYMENT NOT CONFIRMED and stops with an error.
 
 Snowsight (Workspace with this folder uploaded): set ENV / ONLY / RUN below and press Run on this file.
 """
@@ -16,7 +21,6 @@ import io
 import os
 import re
 import sys
-import tempfile
 
 import yaml
 
@@ -109,6 +113,7 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'procedures/sp_save_working_days.sql',
     'procedures/sp_set_employee_active.sql',
 ]
+SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
 
@@ -154,30 +159,90 @@ def plan(only=None):
     return out
 
 
-def render_all(env, only=None):
-    check_order()
+def load_cfg(env):
     with open(os.path.join(HERE, 'config.yml'), encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     if env not in cfg:
         raise KeyError(f'No environment {env!r} in config.yml (has: {", ".join(cfg)})')
+    return cfg[env]
+
+
+def render_all(env, only=None):
+    check_order()
+    cfg = load_cfg(env)
     out = {}
     for f in plan(only):                              # render everything before running anything
         with open(os.path.join(HERE, f), encoding='utf-8') as fh:
-            out[f] = render(fh.read(), cfg[env])
+            out[f] = render(fh.read(), cfg)
     return out
 
 
+def first_line(e):
+    """The error on one line, max 300 characters."""
+    return ' '.join(str(e).split())[:300] or type(e).__name__
+
+
+def get_session(connection=None):
+    """Snowsight: the active session. Terminal: the named connection (-c). GitHub Actions: the SNOWFLAKE_* environment variables."""
+    from snowflake.snowpark import Session
+    if connection:
+        return Session.builder.config('connection_name', connection).create()
+    try:
+        from snowflake.snowpark.context import get_active_session
+        return get_active_session()
+    except Exception:
+        return Session.builder.configs({k: os.environ[f'SNOWFLAKE_{k.upper()}'] for k in ('account', 'user', 'password')}).create()
+
+
+def verify(env, session=None):
+    """Read-only check of the whole deployment (all of DEPLOY_ORDER). Prints the VERIFY block; returns True if confirmed."""
+    session = session or get_session()
+    cfg = load_cfg(env)
+    db = cfg['database']
+    session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+    expected = {kind: set() for kind in SCHEMA}                      # file name = object name
+    for f in DEPLOY_ORDER:
+        kind, name = f.split('/')
+        expected[kind].add(name[:-4].upper())
+    found, report = {}, []                                           # report: (label, ok, total, issues)
+    for kind in SCHEMA:
+        try:                                                         # SHOW lists what the role can see; no warehouse needed
+            rows = session.sql(f'SHOW {kind.upper()} IN SCHEMA {db}.{SCHEMA[kind]}').collect()
+            found[kind], issues = {str(r['name']).upper() for r in rows if r.as_dict().get('is_builtin') != 'Y'}, []
+        except Exception as e:
+            found[kind], issues = set(), [f'cannot list: {first_line(e)}']
+        missing = sorted(expected[kind] - found[kind])
+        report.append((f'{kind} in {SCHEMA[kind]}', len(expected[kind]) - len(missing), len(expected[kind]),
+                       issues or ([f"missing: {', '.join(missing)}"] if missing else [])))
+    views, broken = sorted(expected['views'] & found['views']), []
+    for v in views:
+        try:
+            session.sql(f'SELECT * FROM {db}.RPT.{v} LIMIT 0').collect()   # compiles the view, reads no rows
+        except Exception as e:
+            broken.append(f'{v} ({first_line(e)})')
+    report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
+    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
+
+    print(f'\nVERIFY ({env}): {db}')
+    for label, ok, total, issues in report:
+        print(f'  {label:<18}{ok}/{total}' + (f"   {'; '.join(issues)}" if issues else ''))
+    print(f"  {'unexpected':<18}{', '.join(extra) if extra else 'none'}")
+    if extra or any(issues for *_, issues in report):
+        print(f'DEPLOYMENT NOT CONFIRMED ({env}): see the lines above.')
+        return False
+    print(f'DEPLOYMENT CONFIRMED ({env}): all {len(DEPLOY_ORDER)} objects verified in {db}.')
+    return True
+
+
 def deploy_all(env='uat', only=None, run=False, session=None):
-    """Dry run unless run=True. Runs through the Snowpark session (the active one in Snowsight)."""
+    """Dry run unless run=True. Runs through the Snowpark session (the active one in Snowsight), then verifies."""
     rendered = render_all(env, only)
     if not run:
         for name, sql in rendered.items():
             print(f'\n-- ===== {name} ({env}) =====\n{sql}')
         return
     from snowflake.connector.util_text import split_statements     # keeps $$ bodies whole
-    if session is None:
-        from snowflake.snowpark.context import get_active_session
-        session = get_active_session()
+    session = session or get_session()
     for name, sql in rendered.items():
         print(f'\n{name} ({env})')
         for stmt, _ in split_statements(io.StringIO(sql), remove_comments=True):
@@ -185,31 +250,29 @@ def deploy_all(env='uat', only=None, run=False, session=None):
             if stmt:
                 print(f"  {' '.join(stmt.split())[:80]} ...")
                 session.sql(stmt).collect()                          # raises and stops on failure
+    if not verify(env, session):
+        raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env})')
 
 
 def main():
     import argparse
-    import shutil
-    import subprocess
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('env')
     ap.add_argument('only', nargs='*', help='folders (tables/views/procedures) or script names; default: all')
-    ap.add_argument('--run', action='store_true', help='execute with the Snowflake CLI (default: only print)')
-    ap.add_argument('-c', '--connection', help='Snowflake CLI connection name')
+    ap.add_argument('--run', action='store_true', help='execute, then verify (default: only print)')
+    ap.add_argument('--verify', action='store_true', help='only verify what is deployed (read-only)')
+    ap.add_argument('-c', '--connection', help='connection name from the Snowflake CLI config (not needed in GitHub Actions)')
     if len(sys.argv) < 2 or sys.argv[1].startswith('-'):     # no terminal arguments (Snowsight): use the settings above
         return deploy_all(ENV, ONLY, RUN)
     a = ap.parse_args()
+    if a.verify:
+        sys.exit(0 if verify(a.env, get_session(a.connection)) else 1)
     if not a.run:
         return deploy_all(a.env, a.only or None)
-    rendered = render_all(a.env, a.only or None)
-    snow = shutil.which('snow') or sys.exit('Snowflake CLI (`snow`) not found on PATH')
-    with tempfile.TemporaryDirectory() as tmp:
-        for name, sql in rendered.items():
-            path = os.path.join(tmp, name.replace('/', '__'))
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(sql)
-            print(f'\n>>> {name} ({a.env})', flush=True)
-            subprocess.run([snow, 'sql', '-f', path] + (['-c', a.connection] if a.connection else []), check=True)
+    try:
+        deploy_all(a.env, a.only or None, run=True, session=get_session(a.connection))
+    except Exception as e:
+        sys.exit(f'FAILED: {first_line(e)}')
 
 
 if __name__ == '__main__':
