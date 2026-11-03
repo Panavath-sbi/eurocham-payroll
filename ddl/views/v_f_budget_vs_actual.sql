@@ -1,17 +1,4 @@
--- depends_on: T_D_SCENARIO, V_F_PAYROLL_SUMMARY, T_D_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_BUDGET_VS_ACTUAL - Per period and entity: official budget vs latest forecast vs actual employer cost and gross pay
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
-   2026-10-19  Own file for DLSync (was in R__views_rpt.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-   ===================================================================================== */
 CREATE OR REPLACE VIEW RPT.V_F_BUDGET_VS_ACTUAL
 COPY GRANTS
 COMMENT = 'Per period and entity: official budget vs latest forecast vs actual employer cost and gross pay.'

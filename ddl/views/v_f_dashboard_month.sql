@@ -1,33 +1,4 @@
--- depends_on: V_F_PAYROLL_SUMMARY, T_D_SCENARIO, V_F_BUDGET_VS_ACTUAL, T_D_PERIOD, T_F_SCENARIO_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_DASHBOARD_MONTH - Dashboard figures per calendar month: actual totals (total and per chamber), applied NBC rate, official budget and latest forecast gross pay
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-05  Initial version: V_D_PERIOD, V_F_SCENARIO_PERIOD, V_F_PAYROLL_INPUT,
-               V_F_ALLOCATION, V_D_SCENARIO_EMPLOYEE, V_F_PAYROLL_LINE, V_D_LOOKUP,
-               V_P_APPROVAL_STEP, V_D_APP_USER.
-   2026-10-05  V_F_DASHBOARD_MONTH added (everything the Dashboard shows, one row per month).
-   2026-10-19  Own file for DLSync (was in R__views_rpt_app.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-
-   NOTES
-   -----
-   * No view here contains bank details or signature images: every app user reads through
-     the same Snowflake connection, so anything in a view is visible to all of them.
-   * Column comments: views inherit the meaning of the APP columns they show; only new or
-     calculated columns are described.
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   Dashboard: one row per calendar month with the actual payroll totals (total and per
-   chamber), the applied NBC rate and the official budget / latest forecast gross pay.
-   Every month exists (zeros when nothing was paid), so a 12-month chart always has 12
-   points. Chamber = the entity of the employee's contract that month.
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH (
     PERIOD_KEY, YEAR, MONTH_NUMBER, PERIOD_LABEL,
     SHORT_LABEL        COMMENT 'Chart label, e.g. Oct''26',
@@ -47,7 +18,6 @@ CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH (
     BUDGET_GROSS_USD   COMMENT 'Gross pay of the official budget of that year',
     FORECAST_GROSS_USD COMMENT 'Gross pay of the latest forecast of that year'
 )
-COPY GRANTS
 COMMENT = 'Dashboard figures per calendar month: actual totals (total and per chamber), applied NBC rate, official budget and latest forecast gross pay.'
 AS
 WITH act AS (

@@ -1,17 +1,4 @@
--- depends_on: T_F_PAYROLL_LINE, T_D_PAY_COMPONENT
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_PAYROLL_SUMMARY - Grain: one row per scenario x period x employee
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
-   2026-10-19  Own file for DLSync (was in R__views_core.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-   ===================================================================================== */
 CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_SUMMARY
 COPY GRANTS
 COMMENT = 'Grain: one row per scenario x period x employee. Totals aggregated from T_F_PAYROLL_LINE by pay component category.'

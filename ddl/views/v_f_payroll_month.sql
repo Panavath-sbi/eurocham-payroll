@@ -1,32 +1,4 @@
--- depends_on: V_F_PAYROLL_SUMMARY, T_D_EMPLOYEE, T_D_PERIOD, T_D_EMPLOYEE_CONTRACT, T_F_SCENARIO_PERIOD, T_F_PAYROLL_LINE
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_PAYROLL_MONTH - Payroll per scenario x month x employee: V_F_PAYROLL_SUMMARY totals plus the main components, with names
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-05  Initial version: V_D_PERIOD, V_F_SCENARIO_PERIOD, V_F_PAYROLL_INPUT,
-               V_F_ALLOCATION, V_D_SCENARIO_EMPLOYEE, V_F_PAYROLL_LINE, V_D_LOOKUP,
-               V_P_APPROVAL_STEP, V_D_APP_USER.
-   2026-10-05  V_F_PAYROLL_MONTH added (one row per employee per month with the totals
-               and the main components; replaces the app's Essbase transaction queries).
-   2026-10-19  Own file for DLSync (was in R__views_rpt_app.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-
-   NOTES
-   -----
-   * No view here contains bank details or signature images: every app user reads through
-     the same Snowflake connection, so anything in a view is visible to all of them.
-   * Column comments: views inherit the meaning of the APP columns they show; only new or
-     calculated columns are described.
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   One row per employee per month with names, totals and the main pay components:
-   Dashboard, Approval and Cost Center figures (replaces the Essbase transaction queries)
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_MONTH (
     SCENARIO_ID, PERIOD_KEY, YEAR, MONTH_NUMBER, EMPLOYEE_ID, RESOURCE_CODE,
     FULL_NAME COMMENT 'First and last name',

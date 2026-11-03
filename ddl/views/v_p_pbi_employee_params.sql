@@ -1,29 +1,4 @@
--- depends_on: T_D_PERIOD, T_D_SCENARIO, T_F_SCENARIO_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_P_PBI_EMPLOYEE_PARAMS - Power BI: EmployeeParams (monthly FX rates and working days, current year)
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-30  Initial version: EmployeeParams, DimEmployee, Employee_Details.
-   2026-10-19  Own file for DLSync (was in R__views_pbi.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-
-   NOTES
-   -----
-   * "Current year" = the calendar year of CURRENT_DATE(), as DynamicFiscalYear did.
-   * Only real employees are shown (planned hires of budgets / forecasts are excluded).
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   EmployeeParams  ->  RPT.V_P_PBI_EMPLOYEE_PARAMS
-   One row per month of the current year: M01..M12.
-   FX rates: the rates applied to the actual payroll month, 0 when the month has no
-   payroll yet (as in Essbase). Working days: the payroll month's value, otherwise the
-   Settings calendar, otherwise 0.
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_P_PBI_EMPLOYEE_PARAMS (
     "Month"        COMMENT 'Month code M01..M12',
     "MonthNo"      COMMENT 'Month number 1..12',

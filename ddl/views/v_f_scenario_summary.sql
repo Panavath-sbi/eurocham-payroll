@@ -1,17 +1,4 @@
--- depends_on: V_F_PAYROLL_SUMMARY, T_D_SCENARIO, T_D_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_SCENARIO_SUMMARY - Monthly totals per scenario and entity
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-29  Initial version (split from the original build scripts for Git / schemachange).
-   2026-10-19  Own file for DLSync (was in R__views_rpt.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-   ===================================================================================== */
 CREATE OR REPLACE VIEW RPT.V_F_SCENARIO_SUMMARY
 COPY GRANTS
 COMMENT = 'Monthly totals per scenario and entity. Power Apps filters on SCENARIO_ID; no comparison logic in Snowflake.'

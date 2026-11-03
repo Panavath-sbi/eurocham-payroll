@@ -1,32 +1,3 @@
--- depends_on: T_D_EMPLOYEE_CONTRACT, T_D_PERIOD, T_D_EMPLOYEE
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
-
-/* =====================================================================================
-   V_D_PBI_EMPLOYEE_DETAILS - Power BI: Employee_Details (replaces the SharePoint list)
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-09-30  Initial version: EmployeeParams, DimEmployee, Employee_Details.
-   2026-10-19  Own file for DLSync (was in R__views_pbi.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-
-   NOTES
-   -----
-   * "Current year" = the calendar year of CURRENT_DATE(), as DynamicFiscalYear did.
-   * Only real employees are shown (planned hires of budgets / forecasts are excluded).
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   Employee_Details  ->  RPT.V_D_PBI_EMPLOYEE_DETAILS
-   Replaces the SharePoint list. Title = Resource ID (the join key used by Fct_Payroll).
-   Residency and Position come from the contract version in force today (or the latest
-   version for employees who have left). Non-residency dates are derived from the
-   contract versions with tax status NON_RESIDENT: first day of the first such version,
-   last day of the last one (NULL while still non-resident).
-   Bank fields are sensitive: apply the masking policy (optional/mask_bank_details.sql)
-   and give Power BI a role that only sees what the report needs.
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_D_PBI_EMPLOYEE_DETAILS (
     "Title"                    COMMENT 'Resource ID, e.g. HR-FRA-001 (join key to Fct_Payroll.Employee_ID)',
     "Start_Date"               COMMENT 'Employment start date',
@@ -39,16 +10,17 @@ CREATE OR REPLACE VIEW RPT.V_D_PBI_EMPLOYEE_DETAILS (
     "Bank_Account_Number"      COMMENT 'Bank account number (sensitive)',
     "Position"                 COMMENT 'Current job title'
 )
-COPY GRANTS
 COMMENT = 'Power BI: Employee_Details (replaces the SharePoint list)'
 AS
 WITH current_contract AS (
-    SELECT c.*
+    SELECT 
+        c.*
     FROM APP.T_D_EMPLOYEE_CONTRACT c
     WHERE c.VALID_FROM_PERIOD_KEY <= TO_NUMBER(TO_CHAR(CURRENT_DATE(), 'YYYYMM'))
     QUALIFY ROW_NUMBER() OVER (PARTITION BY c.EMPLOYEE_ID ORDER BY c.VALID_FROM_PERIOD_KEY DESC) = 1
 ),
-non_residency AS (
+non_residency AS 
+(
     SELECT c.EMPLOYEE_ID,
            MIN(pf.PERIOD_START_DATE)                                        AS NR_START,
            IFF(COUNT_IF(c.VALID_TO_PERIOD_KEY IS NULL) > 0, NULL, MAX(pt.PERIOD_END_DATE)) AS NR_END

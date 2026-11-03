@@ -1,29 +1,4 @@
--- depends_on: T_P_APPROVAL_STEP, T_D_APP_USER
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_P_APPROVAL_STEP - The approval chain as it applies in the current calendar month, with the assigned approver
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-05  Initial version: V_D_PERIOD, V_F_SCENARIO_PERIOD, V_F_PAYROLL_INPUT,
-               V_F_ALLOCATION, V_D_SCENARIO_EMPLOYEE, V_F_PAYROLL_LINE, V_D_LOOKUP,
-               V_P_APPROVAL_STEP, V_D_APP_USER.
-   2026-10-19  Own file for DLSync (was in R__views_rpt_app.sql): names qualified with ${DB},
-               COPY GRANTS keeps the app's SELECT grant when the view is replaced.
-
-   NOTES
-   -----
-   * No view here contains bank details or signature images: every app user reads through
-     the same Snowflake connection, so anything in a view is visible to all of them.
-   * Column comments: views inherit the meaning of the APP columns they show; only new or
-     calculated columns are described.
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   Approval steps in force this month, with their approver: Settings page
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_P_APPROVAL_STEP (
     STEP_ORDER, STEP_TITLE, APPROVER_ROLE, APPLIES_TO, MANAGES_EMPLOYEE_CHECKS, VALID_FROM_PERIOD_KEY,
     APPROVER_EMAIL COMMENT 'Active user holding the step''s role (several separated by ; if the data allows it)',

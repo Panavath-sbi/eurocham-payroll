@@ -1,39 +1,4 @@
--- depends_on: T_F_SCENARIO_PERIOD, T_D_SCENARIO, T_D_PERIOD, T_F_PAYROLL_LINE, T_D_PAY_COMPONENT, T_F_FUND_ALLOCATION, T_D_EMPLOYEE_CONTRACT, T_P_TAX_BRACKET, T_D_EMPLOYEE, T_F_PAYROLL_INPUT
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_PBI_PAYSLIP - Power BI: Payslip (finalized actual months, every year, employee x month)
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-21  Initial version: data of the paginated payslip report (EuroCham Payslip.rdl)
-               and the employee list of the payslip flow. Replaces the report's use of
-               Fct_Payroll, which holds the current year only and has no period key.
-
-   NOTES
-   -----
-   * Only FINALIZED actual months: a payslip never shows figures that can still change.
-   * Every year, so a month paid in January (e.g. December's payslips) is still found.
-   * The figures follow RPT.V_F_PBI_PAYROLL (same rules, same column names), so the
-     report only changes its table name and filter. A change to a rule there must be
-     made here too.
-   * Only real employees are shown (planned hires of budgets / forecasts are excluded).
-   ===================================================================================== */
-/* -------------------------------------------------------------------------------------
-   Payslip  ->  RPT.V_F_PBI_PAYSLIP
-   One row per employee x finalized actual month.
-
-   * Totals by pay component CATEGORY, as RPT.V_F_PBI_PAYROLL:
-     gross = EARNING, net = gross - EMPLOYEE_DEDUCTION, NSSF ER = EMPLOYER_CONTRIBUTION.
-   * Fund columns = gross x fund share; a share without a fund goes to the employee's
-     own entity fund (ECCC or CCIFC).
-   * Position, residency and dependants: contract version in force in that month.
-   * ToS_Rate = rate of the tax bracket the taxable base (after dependant relief) falls
-     in; 0.2 for non-residents.
-   * FX_USD_KHR = the NBC rate applied to the month (was looked up from EmployeeParams).
-   ------------------------------------------------------------------------------------- */
 CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYSLIP (
     "Period_Key"             COMMENT 'Payroll month YYYYMM, e.g. 202610 (the report parameter PeriodKey)',
     "Year"                   COMMENT 'Calendar year of the payroll month',
