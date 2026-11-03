@@ -1,22 +1,4 @@
--- depends_on: T_P_STATUTORY_PARAMETER, T_D_PERIOD
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_P_STATUTORY_PARAMETER - Statutory parameters in force in each month, with display labels
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-20  Initial version: Monthly Inputs "Rates & parameters" dialog.
-
-   NOTES
-   -----
-   * One row per month and parameter: the value whose VALID_FROM / VALID_TO covers the month.
-   * Group, order and label are display text for the app; they live here so the table
-     stays unchanged. A new PARAM_CODE shows under "Other" with its code as label until
-     it is added below.
-   ===================================================================================== */
 CREATE OR REPLACE VIEW RPT.V_P_STATUTORY_PARAMETER (
     PERIOD_KEY            COMMENT 'Month the value applies to',
     PARAM_CODE,

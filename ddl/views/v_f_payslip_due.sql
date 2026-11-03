@@ -1,44 +1,4 @@
--- depends_on: T_D_PERIOD, T_D_SCENARIO, T_F_SCENARIO_PERIOD, T_F_PAYSLIP_RUN
-USE ROLE "{{ role_owner }}";
-USE DATABASE {{ database }};
 
-/* =====================================================================================
-   V_F_PAYSLIP_DUE - What the payslip flow must do today, per actual payroll month
-   =====================================================================================
-
-   HISTORY
-   -------
-   2026-10-21  Initial version: pay date, reminder window and the action of the day for
-               the daily payslip flow.
-
-   NOTES
-   -----
-   * Every date is Phnom Penh time. The Snowflake account runs on US Pacific time, so
-     "today" and FINALIZED_AT are converted. FINALIZED_AT is stored without a time zone
-     in the session time zone of the app's connection; it is read back in the session
-     time zone of the flow's connection (the same account default).
-   * Months from 202610 (START_PERIOD_KEY below) up to the current month. Earlier months
-     are never sent or reminded about.
-   * Pay date = the last Monday-Friday of the month (no holiday calendar: pay only ever
-     moves earlier, so a payslip sent after this date is always after the pay).
-   * Reminders start 5 working days before the pay date (= 7 calendar days, since the
-     pay date is a weekday) and are sent on weekdays only.
-   * Payslips are sent from the day after the pay date, once the month is finalized,
-     only if it was finalized before today (the Power BI model refreshes at 00:00, so
-     the payslip report has the final figures), and only if the month has no row in
-     APP.T_F_PAYSLIP_RUN yet.
-
-   ACTION
-   ------
-   SEND         Send the month's payslips now.
-   REMIND       Not finalized, pay date within the next 5 working days (weekdays only).
-   OVERDUE      Not finalized and the pay date has passed (weekdays only).
-   RUN_PROBLEM  A run of this month is still SENDING from an earlier day, or FAILED:
-                the flow does not retry; it tells the admin every day until the row is
-                fixed (deleted to send again, or set to SENT by hand).
-   NONE         Nothing to do today (too early, waiting for the pay date, waiting for the
-                next model refresh, already sent, or a weekend).
-   ===================================================================================== */
 CREATE OR REPLACE VIEW RPT.V_F_PAYSLIP_DUE (
     PERIOD_KEY                    COMMENT 'Actual payroll month (YYYYMM)',
     PERIOD_LABEL                  COMMENT 'Month and year, e.g. October 2026',
