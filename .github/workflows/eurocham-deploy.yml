@@ -1,0 +1,65 @@
+# Deploys ddl/ (EuroCham tables, views, procedures) with deploy.py, then verifies it (DEPLOYMENT CONFIRMED).
+#   Push to dev          -> uat.  dev holds exactly what runs in uat.
+#   Merge to main        -> nothing runs. prod is deployed by hand: Actions -> EuroCham deploy -> Run workflow, branch main,
+#                           environment prod. Changes reach main by a pull request from dev.
+#   "Run workflow"       -> the environment you choose (uat / prod), and optionally `only` to deploy just the named scripts.
+# prod always runs in the GitHub Environment `prod`, so it waits for the Snowflake Administrator's approval.
+# Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
+# The environment expression (chosen input, else main -> prod, else uat) is repeated where GitHub does not allow `env`.
+name: EuroCham deploy
+run-name: EuroCham deploy | ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }} | ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [dev]                 # main: manual only (Run workflow), never on merge
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (prod waits for approval)'
+        type: choice
+        options: [uat, prod]
+        default: uat
+        required: true
+      only:
+        description: 'Scripts to deploy, space-separated (e.g. t_d_employee v_d_employee). Empty = all'
+        required: false
+
+concurrency: eurocham-deploy-${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}   # one run at a time per environment
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}
+    env:
+      TARGET:             ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}   # block in ddl/config.yml
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}      # PAT is accepted as the password
+      ONLY:               ${{ inputs.only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0                  # full history: the log records the scripts changed since the last deployment
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --quiet snowflake-snowpark-python pyyaml
+      - name: Check the Snowflake connection
+        run: |
+          python - <<'EOF'
+          import os, sys
+          sys.path.insert(0, 'ddl')
+          secrets = {'SNOWFLAKE_ACCOUNT': 'SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USER': 'SNOWFLAKE_USER', 'SNOWFLAKE_PASSWORD': 'SNOWFLAKE_PAT'}
+          if missing := [s for v, s in secrets.items() if not os.environ.get(v)]:
+              sys.exit(f'CONNECTION FAILED: GitHub secret(s) not set: {", ".join(missing)}')
+          import deploy
+          try:
+              user, role, wh, account = deploy.get_session().sql(
+                  'SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_ACCOUNT()').collect()[0]
+          except Exception as e:
+              sys.exit(f'CONNECTION FAILED: {deploy.first_line(e)}')
+          print(f'CONNECTED to Snowflake account {account} as {user} (role {role}, warehouse {wh or "none - set a default warehouse"})')
+          EOF
+      - name: Deploy to ${{ env.TARGET }} and verify
+        run: python ddl/deploy.py "$TARGET" $ONLY --run
