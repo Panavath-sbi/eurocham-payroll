@@ -1,0 +1,28 @@
+-- 2026-10-19  Baseline for DLSync: the table as it stands after V1.0.0 - V1.8.0 (created in CORE by V1.0.1, moved to APP by V1.5.0, which added FX_RATE_NBC and FX_RATE_NSSF).
+-- CREATE OR REPLACE TABLE: safe to run on every deployment; an existing table keeps its rows.
+CREATE OR REPLACE TABLE APP.T_D_PERIOD 
+(
+    PERIOD_KEY          INT       NOT NULL                  COMMENT 'Period identifier in YYYYMM form, e.g. 202609',
+    PERIOD_START_DATE   DATE      NOT NULL                  COMMENT 'First day of the month',
+    PERIOD_END_DATE     DATE      NOT NULL                  COMMENT 'Last day of the month',
+    YEAR                INT       NOT NULL                  COMMENT 'Calendar year',
+    MONTH_NUMBER        INT       NOT NULL                  COMMENT 'Month number 1-12',
+    MONTH_NAME          TEXT      NOT NULL                  COMMENT 'Full month name, e.g. September',
+    PERIOD_LABEL        TEXT      NOT NULL                  COMMENT 'Display label, e.g. Sep 2026',
+    QUARTER             INT       NOT NULL                  COMMENT 'Calendar quarter 1-4',
+    HALF_YEAR           INT       NOT NULL                  COMMENT '1 = Jan-Jun, 2 = Jul-Dec (seniority averaging window)',
+    IS_SENIORITY_MONTH  BOOLEAN   NOT NULL                  COMMENT 'TRUE for June and December, when seniority indemnity is paid',
+    FISCAL_YEAR         INT       NOT NULL                  COMMENT 'Fiscal year (currently equal to calendar year)',
+    WEEKDAY_COUNT       INT       NOT NULL                  COMMENT 'Number of Monday-Friday days in the month (reference only)',
+    WORKING_DAYS        INT                                 COMMENT 'Official working days for actual payroll; NULL or 0 = not yet set',
+    BUDGET_WORKING_DAYS INT                                 COMMENT 'Working days used by budget scenarios; NULL or 0 = not yet set',
+    INSERT_DATE         TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation timestamp',
+    UPDATE_DATE         TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Last update timestamp',
+    INSERT_BY           TEXT      DEFAULT CURRENT_USER      COMMENT 'User who created the row',
+    UPDATE_BY           TEXT      DEFAULT CURRENT_USER      COMMENT 'User who last updated the row',
+    FX_RATE_NBC         FLOAT                               COMMENT 'Published NBC USD-KHR rate (gross pay and tax conversion); NULL = not yet published',
+    FX_RATE_NSSF        FLOAT                               COMMENT 'Published NSSF USD-KHR rate (NSSF base conversion); NULL = not yet published',
+    
+    CONSTRAINT PK_T_D_PERIOD PRIMARY KEY (PERIOD_KEY)
+) 
+COMMENT = 'Calendar month dimension (one row per month): calendar attributes, working days (actual and budget) and the published NBC / NSSF exchange rates. The values actually applied to a scenario month are copied into T_F_SCENARIO_PERIOD.';
