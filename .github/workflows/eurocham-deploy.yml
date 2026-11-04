@@ -95,5 +95,8 @@ jobs:
               sys.exit(f'CONNECTION FAILED: {deploy.first_line(e)}')
           print(f'CONNECTED to Snowflake account {account} as {user} (role {role}, warehouse {wh or "none - set a default warehouse"})')
           EOF
+      - name: Debug the warehouse (temporary)   # ponytail: remove with deploy/debug_warehouse.py once the deploy works
+        continue-on-error: true                 # read-only; prints the cause and the fix, never blocks the deploy
+        run: python deploy/debug_warehouse.py "$TARGET"
       - name: Deploy to ${{ env.TARGET }} and verify
         run: python deploy/deploy.py "$TARGET" --run
