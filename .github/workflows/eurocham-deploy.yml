@@ -9,7 +9,7 @@
 #   "Run workflow"       -> the environment you choose (uat / prod).
 # prod always runs in the GitHub Environment `prod`, so it waits for the Snowflake Administrator's approval.
 # Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
-# The environment expression (chosen input, else main -> prod, else uat) is repeated where GitHub does not allow `env`.
+# The environment expression (chosen input, else main -> prod, else uat) is repeated where GitHub does not allow `env`. new push commit
 name: EuroCham deploy
 run-name: EuroCham deploy | ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }} | ${{ github.ref_name }}
 
