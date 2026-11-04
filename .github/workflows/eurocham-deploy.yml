@@ -2,8 +2,10 @@
 # deploy/deploy.py: each file runs once (APP.T_F_DEPLOY_HISTORY), changed views / procedures / functions run again.
 # Then it verifies the result (DEPLOYMENT CONFIRMED).
 #   Push to dev          -> uat.  dev holds exactly what runs in uat.
+#   Push to release/*    -> validate only (read-only, uat and prod): file rules, what would run / is blocked, VERIFY.
+#                           Nothing is executed. The release branch takes dev, resolves conflicts, then a PR into main.
 #   Merge to main        -> nothing runs. prod is deployed by hand: Actions -> EuroCham deploy -> Run workflow, branch main,
-#                           environment prod. Changes reach main by a pull request from dev.
+#                           environment prod. Changes reach main by a pull request from release/*.
 #   "Run workflow"       -> the environment you choose (uat / prod).
 # prod always runs in the GitHub Environment `prod`, so it waits for the Snowflake Administrator's approval.
 # Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
@@ -13,7 +15,7 @@ run-name: EuroCham deploy | ${{ inputs.environment || (github.ref_name == 'main'
 
 on:
   push:
-    branches: [dev]                 # main: manual only (Run workflow), never on merge
+    branches: [dev, 'release/**']   # main: manual only (Run workflow), never on merge
     paths: ['ddl/**', 'dml/**', 'deploy/**', '.github/workflows/eurocham-deploy.yml']
   workflow_dispatch:
     inputs:
@@ -27,7 +29,30 @@ on:
 concurrency: eurocham-deploy-${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}   # one run at a time per environment
 
 jobs:
+  validate:                         # release/*: read-only dry run against uat and prod, no approval needed
+    if: startsWith(github.ref_name, 'release/')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false              # always show both environments
+      matrix:
+        target: [uat, prod]
+    env:
+      SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --quiet snowflake-snowpark-python pyyaml
+      - name: Validate ${{ matrix.target }} (dry run + VERIFY, nothing is executed)
+        run: python deploy/deploy.py ${{ matrix.target }}
+
   deploy:
+    if: ${{ !startsWith(github.ref_name, 'release/') }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }}
     env:
