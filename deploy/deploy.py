@@ -129,6 +129,7 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'stages/payslip_template.sql',
     # --- functions ---
     'functions/fn_payslip_pdf.sql',             # reads the payslip_template stage
+    'views/v_f_payslip_doc.sql',                # uses FN_PAYSLIP_PDF
 ]
 SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
 REPEATABLE = {'views', 'procedures', 'functions'}                   # CREATE OR REPLACE is safe to run again
@@ -260,11 +261,12 @@ def verify(env, session=None):
     session = session or get_session()
     cfg = load_cfg(env)
     db = cfg['database']
-    session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+    use_env(session, cfg)
     expected = {kind: set() for kind in SCHEMA}                      # file name = object name
     for f in DEPLOY_ORDER:
         kind, name = f.split('/')
         expected[kind].add(name[:-4].upper())
+    expected['tables'].add(HISTORY)                                  # deploy.py's own table: counted, never unexpected
     found, report = {}, []                                           # report: (label, ok, total, issues)
     for kind in SCHEMA:
         try:                                                         # SHOW lists what the role can see; no warehouse needed
@@ -282,7 +284,6 @@ def verify(env, session=None):
         except Exception as e:
             broken.append(f'{v} ({first_line(e)})')
     report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
-    found['tables'].discard(HISTORY)                                 # deploy.py's own table is not unexpected
     extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
 
     print(f'\nVERIFY ({env}): {db}')
@@ -292,7 +293,7 @@ def verify(env, session=None):
     if extra or any(issues for *_, issues in report):
         print(f'DEPLOYMENT NOT CONFIRMED ({env}): see the lines above.')
         return False
-    print(f'DEPLOYMENT CONFIRMED ({env}): all {len(DEPLOY_ORDER)} objects verified in {db}.')
+    print(f'DEPLOYMENT CONFIRMED ({env}): all {sum(map(len, expected.values()))} objects verified in {db}.')
     return True
 
 
@@ -304,8 +305,9 @@ def deploy_all(env='uat', run=False, session=None, baseline=False, show=False):
         use_env(session, cfg)
     done = history(session, create=run or baseline) if session is not None else {}
     to_run, blocked = pending(done)
-    print(f"\n{env} ({cfg['database']}): {len(to_run)} to run, {len(blocked)} blocked, "
-          f"{len(scripts()) - len(to_run) - len(blocked)} unchanged" + ('' if session else ' (history not read: no connection)'))
+    unchanged = len(scripts()) - len(to_run) - len(blocked)
+    print(f"\n{env} ({cfg['database']}): {len(to_run)} to run, {len(blocked)} blocked, {unchanged} unchanged"
+          + ('' if session else ' (history not read: no connection)'))
     for s, _ in blocked:
         print(f'  BLOCKED  {s}: changed after it ran; put the change in a new dml/ script')
     if baseline:
@@ -320,6 +322,8 @@ def deploy_all(env='uat', run=False, session=None, baseline=False, show=False):
         if show and not run:
             print(read(s))
     if not run:
+        if session is not None and not verify(env, session) and not to_run:   # state shown; missing objects are fine
+            raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env}) with nothing pending')   # while they are still to run
         return
     from snowflake.connector.util_text import split_statements     # keeps $$ bodies whole
     for s, h in to_run:
