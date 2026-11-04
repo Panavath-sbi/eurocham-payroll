@@ -11,7 +11,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PAYSLIP_DUE (
     TODAY_LOCAL                   COMMENT 'Today in Phnom Penh',
     ACTION                        COMMENT 'SEND, REMIND, OVERDUE, RUN_PROBLEM or NONE (see the file header)'
 )
-COMMENT = 'Payslip flow: one row per actual payroll month from 202610 to the current month, with its pay date and what the flow must do today.'
+COPY GRANTS COMMENT = 'Payslip flow: one row per actual payroll month from 202610 to the current month, with its pay date and what the flow must do today.'
 AS
 WITH today AS 
 (

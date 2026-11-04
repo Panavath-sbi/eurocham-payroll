@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_APPROVAL_EVENT
-COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log. PERIOD_KEY 0 = a whole budget.'
+COPY GRANTS COMMENT = 'Grain: one row per approval action (approve, reject, send back, undo, reset), read from the change log. PERIOD_KEY 0 = a whole budget.'
 AS
 SELECT
     c.CHANGE_ID                       AS ACTION_ID,

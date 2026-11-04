@@ -9,8 +9,8 @@ dml/<object>_<action>.sql  e.g. t_d_period_insert.sql
 What runs is decided by APP.T_F_DEPLOY_HISTORY (script + checksum of every file that ran):
   never ran                           -> runs
   ran, unchanged                      -> skipped
-  ran, changed: views / procedures / functions  -> runs again (CREATE OR REPLACE ... COPY GRANTS keeps grants)
-  ran, changed: tables / stages / dml -> BLOCKED, nothing runs (a rerun would wipe rows / files, or repeat a change):
+  ran, changed: views / procedures    -> runs again (CREATE OR REPLACE ... COPY GRANTS keeps grants)
+  ran, changed: tables / dml          -> BLOCKED, nothing runs (a rerun would wipe rows, or repeat a change):
                                          put the change in a new dml/ script instead (ALTER TABLE, UPDATE, ...)
 deploy.py sets the role and database itself (config.yml), since the files have no USE lines.
 
@@ -125,14 +125,10 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'procedures/sp_save_statutory_parameter.sql',
     'procedures/sp_save_working_days.sql',
     'procedures/sp_set_employee_active.sql',
-    # --- stages (run once; the files in them are uploaded by hand) ---
-    'stages/payslip_template.sql',
-    # --- functions ---
-    'functions/fn_payslip_pdf.sql',             # reads the payslip_template stage
-    'views/v_f_payslip_doc.sql',                # uses FN_PAYSLIP_PDF
 ]
-SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
-REPEATABLE = {'views', 'procedures', 'functions'}                   # CREATE OR REPLACE is safe to run again
+SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP'}     # fixed in the scripts; ddl/ holds only these folders
+REPEATABLE = {'views', 'procedures'}                                # CREATE OR REPLACE is safe to run again
+HOTFIXED = {'views': {'V_F_PAYSLIP_DOC'}}                           # created by hotfix/2026-11-03_payslip_hotfix.sql, not by ddl/
 HISTORY = 'T_F_DEPLOY_HISTORY'                                       # in APP; deploy.py's own bookkeeping, not a ddl object
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
@@ -149,7 +145,8 @@ def check_files():
     listed = set(DEPLOY_ORDER)
     on_disk = {f'{d}/{n}' for d in SCHEMA if os.path.isdir(os.path.join(DDL, d))
                for n in os.listdir(os.path.join(DDL, d)) if n.endswith('.sql')}
-    problems = [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
+    problems = [f'ddl/{d}: only {", ".join(SCHEMA)} folders belong in ddl/' for d in sorted(os.listdir(DDL)) if d not in SCHEMA]
+    problems += [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
     problems += [f'listed but missing: {f}' for f in sorted(listed - on_disk)]
     problems += [f'listed twice: {f}' for f in sorted({f for f in DEPLOY_ORDER if DEPLOY_ORDER.count(f) > 1})]
     pos = {os.path.basename(f)[:-4]: i for i, f in enumerate(DEPLOY_ORDER)}
@@ -217,7 +214,10 @@ def get_session(connection=None):
         from snowflake.snowpark.context import get_active_session
         return get_active_session()
     except Exception:
-        return Session.builder.configs({k: os.environ[f'SNOWFLAKE_{k.upper()}'] for k in ('account', 'user', 'password')}).create()
+        cfg = {k: os.environ[f'SNOWFLAKE_{k.upper()}'] for k in ('account', 'user', 'password')}
+        if os.environ.get('SNOWFLAKE_WAREHOUSE'):
+            cfg['warehouse'] = os.environ['SNOWFLAKE_WAREHOUSE']
+        return Session.builder.configs(cfg).create()
 
 
 def use_env(session, cfg):
@@ -285,7 +285,7 @@ def verify(env, session=None):
         except Exception as e:
             broken.append(f'{v} ({first_line(e)})')
     report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
-    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
+    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind] - HOTFIXED.get(kind, set()))   # leftover or duplicate objects
 
     print(f'\nVERIFY ({env}): {db}')
     for label, ok, total, issues in report:

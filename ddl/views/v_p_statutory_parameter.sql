@@ -9,7 +9,7 @@ CREATE OR REPLACE VIEW RPT.V_P_STATUTORY_PARAMETER
     UNIT,
     VALID_FROM_PERIOD_KEY COMMENT 'Month this value started (shown as "Since")'
 )
-COMMENT = 'Statutory parameters in force in each month, with display labels: Monthly Inputs dialog.'
+COPY GRANTS COMMENT = 'Statutory parameters in force in each month, with display labels: Monthly Inputs dialog.'
 AS
 SELECT
     p.PERIOD_KEY,

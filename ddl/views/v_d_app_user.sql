@@ -6,7 +6,7 @@ CREATE OR REPLACE VIEW RPT.V_D_APP_USER
     IS_ACTIVE,
     HAS_SIGNATURE COMMENT 'TRUE when an e-signature image is stored for the user'
 )
-COMMENT = 'Users of the payroll app with their one role. The signature image itself is not shown.'
+COPY GRANTS COMMENT = 'Users of the payroll app with their one role. The signature image itself is not shown.'
 AS
 SELECT 
     USER_EMAIL, 

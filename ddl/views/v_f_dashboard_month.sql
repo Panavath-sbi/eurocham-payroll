@@ -28,7 +28,7 @@ CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_MONTH
     BUDGET_GROSS_USD   COMMENT 'Gross pay of the official budget of that year',
     FORECAST_GROSS_USD COMMENT 'Gross pay of the latest forecast of that year'
 )
-COMMENT = 'Dashboard figures per calendar month: actual totals (total and per chamber), applied NBC rate, official budget and latest forecast gross pay.'
+COPY GRANTS COMMENT = 'Dashboard figures per calendar month: actual totals (total and per chamber), applied NBC rate, official budget and latest forecast gross pay.'
 AS
 WITH act AS (
     SELECT 

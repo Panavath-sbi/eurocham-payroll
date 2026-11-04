@@ -1,5 +1,5 @@
 # Deploys what is pending in ddl/ (object definitions) and then dml/ (DML, grants, data fixes, one-off changes) with
-# deploy/deploy.py: each file runs once (APP.T_F_DEPLOY_HISTORY), changed views / procedures / functions run again.
+# deploy/deploy.py: each file runs once (APP.T_F_DEPLOY_HISTORY), changed views / procedures run again.
 # Then it verifies the result (DEPLOYMENT CONFIRMED).
 #   Push to dev          -> uat.  dev holds exactly what runs in uat.
 #   Push to release/*    -> validate only (read-only, uat and prod): file rules, what would run / is blocked, VERIFY.
@@ -8,7 +8,7 @@
 #                           environment prod. Changes reach main by a pull request from release/*.
 #   "Run workflow"       -> the environment you choose (uat / prod).
 # prod always runs in the GitHub Environment `prod`, so it waits for the Snowflake Administrator's approval.
-# Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: the user's default.
+# Secrets (repo level, one service user): SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PAT. Warehouse: SNOWFLAKE_WAREHOUSE below + warehouse in deploy/config.yml.
 # The environment expression (chosen input, else main -> prod, else uat) is repeated where GitHub does not allow `env`. new push commit
 name: EuroCham deploy
 run-name: EuroCham deploy | ${{ inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat') }} | ${{ github.ref_name }}
@@ -40,6 +40,7 @@ jobs:
       SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}
+      SNOWFLAKE_WAREHOUSE: ${{ matrix.target == 'prod' && 'EUROCHAM_WH' || 'COMPUTE_WH' }}   # keep in step with deploy/config.yml
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +61,7 @@ jobs:
       SNOWFLAKE_ACCOUNT:  ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER:     ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PAT }}      # PAT is accepted as the password
+      SNOWFLAKE_WAREHOUSE: ${{ (inputs.environment || (github.ref_name == 'main' && 'prod' || 'uat')) == 'prod' && 'EUROCHAM_WH' || 'COMPUTE_WH' }}   # keep in step with deploy/config.yml
     steps:
       - uses: actions/checkout@v4
         with:

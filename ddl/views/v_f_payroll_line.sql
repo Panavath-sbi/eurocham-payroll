@@ -14,7 +14,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_LINE
     AMOUNT_KHR, 
     FX_RATE_APPLIED
 )
-COMMENT = 'Calculated pay lines (scenario x month x employee x pay component) with the component name and category.'
+COPY GRANTS COMMENT = 'Calculated pay lines (scenario x month x employee x pay component) with the component name and category.'
 AS
 SELECT
     l.SCENARIO_ID,

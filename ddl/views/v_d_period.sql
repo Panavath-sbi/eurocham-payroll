@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_D_PERIOD
-COMMENT = 'Calendar months with working days (actual and budget calendars) and published NBC / NSSF rates.'
+COPY GRANTS COMMENT = 'Calendar months with working days (actual and budget calendars) and published NBC / NSSF rates.'
 AS
 SELECT
     PERIOD_KEY,

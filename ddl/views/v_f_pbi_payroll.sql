@@ -49,7 +49,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL
     "EU_Gate_Pct_KHR"        COMMENT 'EU GATE fund share, 0..1 (same as EU_Gate_Pct)',
     "Employee_Position"      COMMENT 'Job title from the contract of the month'
 )
-COMMENT = 'Power BI: Fct_Payroll (actual payroll, current year, employee x month)'
+COPY GRANTS COMMENT = 'Power BI: Fct_Payroll (actual payroll, current year, employee x month)'
 AS
 WITH months AS (           -- actual payroll months of the current year
     SELECT 

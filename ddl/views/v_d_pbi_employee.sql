@@ -3,7 +3,7 @@ CREATE OR REPLACE VIEW RPT.V_D_PBI_EMPLOYEE
     "Employee_ID"   COMMENT 'Resource ID shown to users, e.g. HR-FRA-001',
     "Employee_Name" COMMENT 'First name and last name, e.g. Martin BRISSON'
 )
-COMMENT = 'Power BI: DimEmployee (one row per employee)'
+COPY GRANTS COMMENT = 'Power BI: DimEmployee (one row per employee)'
 AS
 SELECT
     e.RESOURCE_CODE                                                      AS "Employee_ID",

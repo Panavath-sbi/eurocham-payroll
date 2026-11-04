@@ -36,7 +36,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYSLIP
     "ToS_Withheld_KHR"       COMMENT 'Salary tax KHR',
     "FX_USD_KHR"             COMMENT 'NBC USD-KHR rate applied to the payroll month'
 )
-COMMENT = 'Power BI: Payslip (finalized actual months, every year, employee x month); also the payslip flow''s employee list'
+COPY GRANTS COMMENT = 'Power BI: Payslip (finalized actual months, every year, employee x month); also the payslip flow''s employee list'
 AS
 WITH months AS 
 (           -- finalized actual payroll months, every year

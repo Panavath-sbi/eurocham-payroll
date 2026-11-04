@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_DASHBOARD_KPI
-COMMENT = 'Dashboard cards for the latest actual period, per entity plus an ALL total row.'
+COPY GRANTS COMMENT = 'Dashboard cards for the latest actual period, per entity plus an ALL total row.'
 AS
 WITH latest AS 
 (

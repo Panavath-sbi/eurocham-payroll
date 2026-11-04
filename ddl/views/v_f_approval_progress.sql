@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_APPROVAL_PROGRESS
-COMMENT = 'Every step of every approval (each payroll month, each submitted budget with PERIOD_KEY 0), its current state, and the next step to act on.'
+COPY GRANTS COMMENT = 'Every step of every approval (each payroll month, each submitted budget with PERIOD_KEY 0), its current state, and the next step to act on.'
 AS
 WITH item AS 
 (   -- each approval: a payroll month, or a whole budget (period 0)

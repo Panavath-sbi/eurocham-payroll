@@ -5,7 +5,7 @@ CREATE OR REPLACE VIEW RPT.V_P_PBI_EMPLOYEE_PARAMS (
     "FX_NSSF_KHR"  COMMENT 'NSSF USD-KHR rate applied to the payroll month; 0 if not opened',
     "Working_Days" COMMENT 'Working days of the month; 0 if not set'
 )
-COMMENT = 'Power BI: EmployeeParams (monthly FX rates and working days, current year)'
+COPY GRANTS COMMENT = 'Power BI: EmployeeParams (monthly FX rates and working days, current year)'
 AS
 SELECT
     'M' || LPAD(p.MONTH_NUMBER, 2, '0')                          AS "Month",

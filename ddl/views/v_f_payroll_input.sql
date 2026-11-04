@@ -19,7 +19,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_INPUT
     UPDATED_AT COMMENT 'When the row was last changed',
     UPDATED_BY COMMENT 'Who last changed the row'
 )
-COMMENT = 'Monthly inputs per scenario, month and employee, with the employee check (actual payroll). Budget months only have rows where something was entered.'
+COPY GRANTS COMMENT = 'Monthly inputs per scenario, month and employee, with the employee check (actual payroll). Budget months only have rows where something was entered.'
 AS
 SELECT
     i.SCENARIO_ID,

@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_COST_CENTER_SUMMARY
-COMMENT = 'Allocated cost per scenario, period, entity, fund and department.'
+COPY GRANTS COMMENT = 'Allocated cost per scenario, period, entity, fund and department.'
 AS
 SELECT
     a.SCENARIO_ID,

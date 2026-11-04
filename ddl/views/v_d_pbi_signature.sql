@@ -3,7 +3,7 @@ CREATE OR REPLACE VIEW RPT.V_D_PBI_SIGNATURE (
     IMAGE_BASE64   COMMENT 'E-signature image in Base64'
 )
 
-COMMENT = 'Power BI: approver e-signatures (from APP.T_D_APP_USER.SIGNATURE_IMAGE)'
+COPY GRANTS COMMENT = 'Power BI: approver e-signatures (from APP.T_D_APP_USER.SIGNATURE_IMAGE)'
 AS
 SELECT 
     USER_EMAIL, 

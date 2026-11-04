@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_BUDGET_VS_ACTUAL
-COMMENT = 'Per period and entity: official budget vs latest forecast vs actual employer cost and gross pay.'
+COPY GRANTS COMMENT = 'Per period and entity: official budget vs latest forecast vs actual employer cost and gross pay.'
 AS
 WITH sources AS 
 (

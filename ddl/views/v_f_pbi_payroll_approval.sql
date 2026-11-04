@@ -13,7 +13,7 @@ CREATE OR REPLACE VIEW RPT.V_F_PBI_PAYROLL_APPROVAL
     "Year"            COMMENT 'Payroll year',
     "MonthNo"         COMMENT 'Payroll month number 1-12'
 )
-COMMENT = 'Power BI: Payroll_Approval (replaces the SharePoint approval list)'
+COPY GRANTS COMMENT = 'Power BI: Payroll_Approval (replaces the SharePoint approval list)'
 AS
 WITH assigned AS 
 (         -- who holds each approver role today (one role per user)

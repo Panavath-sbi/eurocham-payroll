@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_D_SCENARIO
-COMMENT = 'Scenario dimension for reporting: actual payroll, budget scenarios and forecast versions.'
+COPY GRANTS COMMENT = 'Scenario dimension for reporting: actual payroll, budget scenarios and forecast versions.'
 AS
 SELECT
     SCENARIO_ID,

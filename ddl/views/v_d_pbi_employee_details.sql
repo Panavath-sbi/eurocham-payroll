@@ -10,7 +10,7 @@ CREATE OR REPLACE VIEW RPT.V_D_PBI_EMPLOYEE_DETAILS (
     "Bank_Account_Number"      COMMENT 'Bank account number (sensitive)',
     "Position"                 COMMENT 'Current job title'
 )
-COMMENT = 'Power BI: Employee_Details (replaces the SharePoint list)'
+COPY GRANTS COMMENT = 'Power BI: Employee_Details (replaces the SharePoint list)'
 AS
 WITH current_contract AS (
     SELECT 

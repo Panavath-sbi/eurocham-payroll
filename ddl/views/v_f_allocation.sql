@@ -6,7 +6,7 @@ CREATE OR REPLACE VIEW RPT.V_F_ALLOCATION
     ALLOCATION_NAME COMMENT 'Fund or department name',
     SHARE_PCT
 )
-COMMENT = 'Fund and department splits per scenario, month and employee (percent, each type totals 100).'
+COPY GRANTS COMMENT = 'Fund and department splits per scenario, month and employee (percent, each type totals 100).'
 AS
 SELECT 
     f.SCENARIO_ID, 

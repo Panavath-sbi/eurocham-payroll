@@ -1,5 +1,5 @@
 CREATE OR REPLACE VIEW RPT.V_F_SCENARIO_SUMMARY
-COMMENT = 'Monthly totals per scenario and entity. Power Apps filters on SCENARIO_ID; no comparison logic in Snowflake.'
+COPY GRANTS COMMENT = 'Monthly totals per scenario and entity. Power Apps filters on SCENARIO_ID; no comparison logic in Snowflake.'
 AS
 SELECT
     s.SCENARIO_ID,
