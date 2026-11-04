@@ -1,0 +1,17 @@
+CREATE OR REPLACE VIEW RPT.V_D_PERIOD
+COPY GRANTS COMMENT = 'Calendar months with working days (actual and budget calendars) and published NBC / NSSF rates.'
+AS
+SELECT
+    PERIOD_KEY,
+    PERIOD_LABEL,
+    YEAR,
+    MONTH_NUMBER,
+    MONTH_NAME,
+    QUARTER,
+    IS_SENIORITY_MONTH,
+    WEEKDAY_COUNT,
+    WORKING_DAYS,
+    BUDGET_WORKING_DAYS,
+    FX_RATE_NBC,
+    FX_RATE_NSSF
+FROM APP.T_D_PERIOD;

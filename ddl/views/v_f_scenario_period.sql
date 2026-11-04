@@ -1,0 +1,41 @@
+
+CREATE OR REPLACE VIEW RPT.V_F_SCENARIO_PERIOD 
+(
+    SCENARIO_ID, 
+    SCENARIO_TYPE, 
+    SCENARIO_NAME, 
+    PERIOD_KEY, 
+    PERIOD_LABEL, 
+    YEAR, 
+    MONTH_NUMBER,
+    PERIOD_STATUS,
+    IS_OPEN COMMENT 'TRUE for the actual month that can still be edited or approved (OPEN or IN_APPROVAL)',
+    WORKING_DAYS, 
+    FX_RATE_NBC, 
+    FX_RATE_NSSF, 
+    FINALIZED_AT, 
+    FINALIZED_BY
+)
+COPY GRANTS
+COMMENT = 'Each month of each scenario with its status and the working days and rates applied to it.'
+AS
+SELECT
+    sp.SCENARIO_ID,
+    s.SCENARIO_TYPE,
+    s.SCENARIO_NAME,
+    sp.PERIOD_KEY,
+    p.PERIOD_LABEL,
+    p.YEAR,
+    p.MONTH_NUMBER,
+    sp.PERIOD_STATUS,
+    sp.PERIOD_STATUS IN ('OPEN', 'IN_APPROVAL'),
+    sp.WORKING_DAYS,
+    sp.FX_RATE_NBC,
+    sp.FX_RATE_NSSF,
+    sp.FINALIZED_AT,
+    sp.FINALIZED_BY
+FROM APP.T_F_SCENARIO_PERIOD sp
+JOIN APP.T_D_SCENARIO s 
+    ON s.SCENARIO_ID = sp.SCENARIO_ID
+JOIN APP.T_D_PERIOD p   
+ON p.PERIOD_KEY = sp.PERIOD_KEY;

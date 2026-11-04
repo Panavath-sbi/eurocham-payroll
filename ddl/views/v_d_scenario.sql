@@ -1,0 +1,14 @@
+CREATE OR REPLACE VIEW RPT.V_D_SCENARIO
+COPY GRANTS COMMENT = 'Scenario dimension for reporting: actual payroll, budget scenarios and forecast versions.'
+AS
+SELECT
+    SCENARIO_ID,
+    SCENARIO_TYPE,
+    SCENARIO_NAME,
+    FISCAL_YEAR,
+    SCENARIO_STATUS,
+    IS_OFFICIAL,
+    BASE_SCENARIO_ID,
+    FORECAST_AS_OF_PERIOD_KEY,
+    DESCRIPTION
+FROM APP.T_D_SCENARIO;

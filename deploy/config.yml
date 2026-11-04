@@ -1,0 +1,8 @@
+uat:
+  database: DEV_PAYROLL_DB
+  role_owner: SYSADMIN              # owner of the objects
+  warehouse: COMPUTE_WH            # the CI user has no default warehouse
+prod:
+  database: EUROCHAM_PAYROLL_DB
+  role_owner: SYSADMIN              # owner of the objects
+  warehouse: COMPUTE_WH

@@ -1,0 +1,35 @@
+CREATE OR REPLACE VIEW RPT.V_F_PAYROLL_LINE 
+(
+    SCENARIO_ID, 
+    PERIOD_KEY, 
+    EMPLOYEE_ID, 
+    PAY_COMPONENT_CODE, 
+    PAY_COMPONENT_NAME, 
+    CATEGORY,
+    DISPLAY_ORDER, 
+    ENTITY_CODE, 
+    QUANTITY, 
+    RATE, 
+    AMOUNT_USD, 
+    AMOUNT_KHR, 
+    FX_RATE_APPLIED
+)
+COPY GRANTS COMMENT = 'Calculated pay lines (scenario x month x employee x pay component) with the component name and category.'
+AS
+SELECT
+    l.SCENARIO_ID,
+    l.PERIOD_KEY,
+    l.EMPLOYEE_ID,
+    l.PAY_COMPONENT_CODE,
+    pc.PAY_COMPONENT_NAME,
+    pc.CATEGORY,
+    pc.DISPLAY_ORDER,
+    l.ENTITY_CODE,
+    l.QUANTITY,
+    l.RATE,
+    l.AMOUNT_USD,
+    l.AMOUNT_KHR,
+    l.FX_RATE_APPLIED
+FROM APP.T_F_PAYROLL_LINE l
+JOIN APP.T_D_PAY_COMPONENT pc 
+    ON pc.PAY_COMPONENT_CODE = l.PAY_COMPONENT_CODE;
