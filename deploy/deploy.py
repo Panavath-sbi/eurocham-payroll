@@ -223,6 +223,7 @@ def get_session(connection=None):
 def use_env(session, cfg):
     session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
     session.sql(f'USE DATABASE {cfg["database"]}').collect()
+    session.sql(f'USE WAREHOUSE "{cfg["warehouse"]}"').collect()
 
 
 def history(session, create=False):
