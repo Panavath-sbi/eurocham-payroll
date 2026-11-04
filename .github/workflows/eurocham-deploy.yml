@@ -69,6 +69,14 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install --quiet snowflake-snowpark-python pyyaml
+      - name: Diagnose the Snowflake account (temporary)   # ponytail: remove once the connection works
+        run: |
+          a="$SNOWFLAKE_ACCOUNT"
+          case "$a" in *https*|*snowflakecomputing*) echo "ACCOUNT SECRET: remove https:// / .snowflakecomputing.com";; esac
+          [ "$a" != "$(echo "$a" | tr -d '[:space:]')" ] && echo "ACCOUNT SECRET: contains spaces or a newline"
+          echo "HTTP status of the account URL:"
+          curl -s -o /dev/null -w '%{http_code}\n' --max-time 20 "https://$(echo "$a" | tr -d '[:space:]').snowflakecomputing.com/console/login" || echo "UNREACHABLE (no answer from GitHub's network)"
+          python -c "import snowflake.connector, logging, os; logging.basicConfig(level=logging.ERROR); snowflake.connector.connect(account=os.environ['SNOWFLAKE_ACCOUNT'].strip(), user=os.environ['SNOWFLAKE_USER'].strip(), password=os.environ['SNOWFLAKE_PASSWORD'].strip(), login_timeout=30); print('STRIPPED SECRETS CONNECT: OK')" 2>&1 | tail -5 || true
       - name: Check the Snowflake connection
         run: |
           python - <<'EOF'
