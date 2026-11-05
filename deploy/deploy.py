@@ -9,8 +9,8 @@ dml/<object>_<action>.sql  e.g. t_d_period_insert.sql
 What runs is decided by APP.T_F_DEPLOY_HISTORY (script + checksum of every file that ran):
   never ran                           -> runs
   ran, unchanged                      -> skipped
-  ran, changed: views / procedures    -> runs again (CREATE OR REPLACE ... COPY GRANTS keeps grants)
-  ran, changed: tables / dml          -> BLOCKED, nothing runs (a rerun would wipe rows, or repeat a change):
+  ran, changed: views / procedures / functions  -> runs again (CREATE OR REPLACE ... COPY GRANTS keeps grants)
+  ran, changed: tables / stages / dml -> BLOCKED, nothing runs (a rerun would wipe rows / files, or repeat a change):
                                          put the change in a new dml/ script instead (ALTER TABLE, UPDATE, ...)
 deploy.py sets the role and database itself (config.yml), since the files have no USE lines.
 
@@ -19,8 +19,13 @@ Terminal (needs: pip install pyyaml snowflake-snowpark-python):
     python deploy/deploy.py uat -c myconn --show         # ... and print the SQL
     python deploy/deploy.py uat --run -c myconn          # run what is pending, then verify
     python deploy/deploy.py prod --verify -c prodconn    # only the verification (read-only)
-    python deploy/deploy.py prod --baseline -c prodconn  # once, on an environment that already has every object:
-                                                      # records all files as run, runs nothing
+    python deploy/deploy.py prod --init -c prodconn      # release check: VERIFY block with missing / changed objects
+First deployment (prod, built by hand, no RUN in the history yet): the release check (--init) creates APP.T_F_DEPLOY_HISTORY
+and records every file as it is on main (origin/main, what prod was built from) as run, executing nothing. From then on:
+  dml / tables / stages on main         -> never run again
+  views / procedures / functions        -> run again only when the release changed them
+  files not on main (new)               -> run
+A table / stage that exists but has no history row is BLOCKED: CREATE OR REPLACE would wipe its rows / files.
 GitHub Actions: no -c; the connection comes from the SNOWFLAKE_ACCOUNT / _USER / _PASSWORD environment variables.
 
 Every run ends with a read-only verification: every DEPLOY_ORDER object exists, every view compiles, and APP / RPT
@@ -32,6 +37,7 @@ import hashlib
 import io
 import os
 import re
+import subprocess
 import sys
 
 import yaml
@@ -125,11 +131,16 @@ DEPLOY_ORDER = [                      # run order; a new script is added here (d
     'procedures/sp_save_statutory_parameter.sql',
     'procedures/sp_save_working_days.sql',
     'procedures/sp_set_employee_active.sql',
+    # --- stages (run once; the files in them are uploaded by hand) ---
+    'stages/payslip_template.sql',
+    # --- functions ---
+    'functions/fn_payslip_pdf.sql',             # reads the payslip_template stage
+    'views/v_f_payslip_doc.sql',                # uses FN_PAYSLIP_PDF
 ]
-SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP'}     # fixed in the scripts; ddl/ holds only these folders
-REPEATABLE = {'views', 'procedures'}                                # CREATE OR REPLACE is safe to run again
-HOTFIXED = {'views': {'V_F_PAYSLIP_DOC'}}                           # created by hotfix/2026-11-03_payslip_hotfix.sql, not by ddl/
+SCHEMA = {'tables': 'APP', 'views': 'RPT', 'procedures': 'APP', 'stages': 'APP', 'functions': 'APP'}   # fixed in the scripts
+REPEATABLE = {'views', 'procedures', 'functions'}                   # CREATE OR REPLACE is safe to run again
 HISTORY = 'T_F_DEPLOY_HISTORY'                                       # in APP; deploy.py's own bookkeeping, not a ddl object
+BUILT_FROM = 'origin/main'                                          # --init: what prod was built from (by hand)
 DEPENDS = re.compile(r'^--\s*depends_on:\s*(.*)$', re.M)
 
 
@@ -145,8 +156,7 @@ def check_files():
     listed = set(DEPLOY_ORDER)
     on_disk = {f'{d}/{n}' for d in SCHEMA if os.path.isdir(os.path.join(DDL, d))
                for n in os.listdir(os.path.join(DDL, d)) if n.endswith('.sql')}
-    problems = [f'ddl/{d}: only {", ".join(SCHEMA)} folders belong in ddl/' for d in sorted(os.listdir(DDL)) if d not in SCHEMA]
-    problems += [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
+    problems = [f'not in DEPLOY_ORDER: {f}' for f in sorted(on_disk - listed)]
     problems += [f'listed but missing: {f}' for f in sorted(listed - on_disk)]
     problems += [f'listed twice: {f}' for f in sorted({f for f in DEPLOY_ORDER if DEPLOY_ORDER.count(f) > 1})]
     pos = {os.path.basename(f)[:-4]: i for i, f in enumerate(DEPLOY_ORDER)}
@@ -214,18 +224,12 @@ def get_session(connection=None):
         from snowflake.snowpark.context import get_active_session
         return get_active_session()
     except Exception:
-        cfg = {k: os.environ[f'SNOWFLAKE_{k.upper()}'] for k in ('account', 'user', 'password')}
-        if os.environ.get('SNOWFLAKE_WAREHOUSE'):
-            cfg['warehouse'] = os.environ['SNOWFLAKE_WAREHOUSE']
-        return Session.builder.configs(cfg).create()
+        return Session.builder.configs({k: os.environ[f'SNOWFLAKE_{k.upper()}'] for k in ('account', 'user', 'password')}).create()
 
 
 def use_env(session, cfg):
-    for stmt in (f'USE ROLE "{cfg["role_owner"]}"', f'USE DATABASE {cfg["database"]}', f'USE WAREHOUSE "{cfg["warehouse"]}"'):
-        try:
-            session.sql(stmt).collect()
-        except Exception as e:                                       # the error text alone does not name the object
-            raise RuntimeError(f'{stmt} failed: {first_line(e)}') from e
+    session.sql(f'USE ROLE "{cfg["role_owner"]}"').collect()
+    session.sql(f'USE DATABASE {cfg["database"]}').collect()
 
 
 def history(session, create=False):
@@ -254,13 +258,39 @@ def pending(done):
     return run, blocked
 
 
-def record(session, script, h, action):
+def record(session, script, h, action, commit=None):
     session.sql(f'INSERT INTO APP.{HISTORY} (SCRIPT, CHECKSUM, GIT_COMMIT, ACTION) SELECT ?, ?, ?, ?',
-                params=[script, h, os.environ.get('GITHUB_SHA'), action]).collect()
+                params=[script, h, commit or os.environ.get('GITHUB_SHA'), action]).collect()
 
 
-def verify(env, session=None):
-    """Read-only check of the whole deployment (all of DEPLOY_ORDER). Prints the VERIFY block; returns True if confirmed."""
+def git(*args):
+    r = subprocess.run(['git', *args], cwd=os.path.join(HERE, '..'), capture_output=True)
+    return r.stdout.decode('utf-8') if r.returncode == 0 else None
+
+
+def init_history(session, ref=BUILT_FROM):
+    """--init: until deploy.py has run a script here (no RUN row: prod, built by hand), record as run every file that is
+    in git `ref` (main: what prod was built from) and has no history row yet. Runs nothing. Returns the history.
+    Files that are not in ref (new) stay pending; rows already there (e.g. an earlier BASELINE) are kept."""
+    done = history(session, create=True)
+    if session.sql(f"SELECT 1 FROM APP.{HISTORY} WHERE ACTION = 'RUN' LIMIT 1").collect():
+        return done                                                  # deploy.py has deployed here: the history is the truth
+    sha = git('rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}')
+    if not sha:
+        raise ValueError(f'git ref {ref} not found (the checkout needs fetch-depth: 0)')
+    n = 0
+    for s in scripts():
+        if s not in done and (text := git('show', f'{ref}:{s}')) is not None:
+            record(session, s, checksum(text), 'BASELINE', sha.strip())
+            n += 1
+    if n:
+        print(f'HISTORY: {n} scripts recorded as run from {ref} ({sha.strip()[:7]}), what prod was built from; nothing was executed.')
+    return history(session)
+
+
+def verify(env, session=None, pending=()):
+    """Read-only check of the whole deployment (all of DEPLOY_ORDER). Prints the VERIFY block; returns True if confirmed.
+    pending (release check): the scripts main's --run will execute. An existing object among them is shown as changed."""
     session = session or get_session()
     cfg = load_cfg(env)
     db = cfg['database']
@@ -278,48 +308,75 @@ def verify(env, session=None):
         except Exception as e:
             found[kind], issues = set(), [f'cannot list: {first_line(e)}']
         missing = sorted(expected[kind] - found[kind])
+        changed = sorted({os.path.basename(s)[:-4].upper() for s in pending if s.startswith(f'ddl/{kind}/')} & found[kind])
         report.append((f'{kind} in {SCHEMA[kind]}', len(expected[kind]) - len(missing), len(expected[kind]),
-                       issues or ([f"missing: {', '.join(missing)}"] if missing else [])))
+                       issues or ([f"missing: {', '.join(missing)}"] if missing else []), changed))
     views, broken = sorted(expected['views'] & found['views']), []
     for v in views:
         try:
             session.sql(f'SELECT * FROM {db}.RPT.{v} LIMIT 0').collect()   # compiles the view, reads no rows
         except Exception as e:
             broken.append(f'{v} ({first_line(e)})')
-    report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else []))
-    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind] - HOTFIXED.get(kind, set()))   # leftover or duplicate objects
+    report.append(('views compile', len(views) - len(broken), len(expected['views']), [f"broken: {'; '.join(broken)}"] if broken else [], []))
+    extra = sorted(f'{kind[:-1]} {n}' for kind in SCHEMA for n in found[kind] - expected[kind])   # leftover or duplicate objects
 
     print(f'\nVERIFY ({env}): {db}')
-    for label, ok, total, issues in report:
-        print(f'  {label:<18}{ok}/{total}' + (f"   {'; '.join(issues)}" if issues else ''))
+    for label, ok, total, issues, changed in report:
+        print(f'  {label:<18}{ok}/{total}' + (f"   {'; '.join(issues)}" if issues else '')
+              + (f"   changed: {', '.join(changed)}" if changed else ''))
     print(f"  {'unexpected':<18}{', '.join(extra) if extra else 'none'}")
-    if extra or any(issues for *_, issues in report):
+    if dml := [os.path.basename(s) for s in pending if s.startswith('dml/')]:
+        print(f"  {'dml to run':<18}{', '.join(dml)}")
+    if extra or any(issues for _, _, _, issues, _ in report):
         print(f'DEPLOYMENT NOT CONFIRMED ({env}): see the lines above.')
         return False
     print(f'DEPLOYMENT CONFIRMED ({env}): all {sum(map(len, expected.values()))} objects verified in {db}.')
     return True
 
 
-def deploy_all(env='uat', run=False, session=None, baseline=False, show=False):
-    """Dry run unless run / baseline. Without a session a dry run cannot read the history and lists every file."""
+def live(session, cfg):
+    """'tables/T_D_EMPLOYEE', 'stages/PAYSLIP_TEMPLATE', ...: the run-once objects that exist (a rerun would wipe them)."""
+    found = set()
+    for kind in set(SCHEMA) - REPEATABLE:
+        try:
+            rows = session.sql(f"SHOW {kind.upper()} IN SCHEMA {cfg['database']}.{SCHEMA[kind]}").collect()
+            found |= {f"{kind}/{str(r['name']).upper()}" for r in rows}
+        except Exception:                                            # no schema yet: nothing exists
+            pass
+    return found
+
+
+def deploy_all(env='uat', run=False, session=None, show=False, init=False):
+    """Dry run unless run. init (release check): fills the history from main while nothing has run here yet
+    (init_history), then prints only the VERIFY block, marking what main's --run will do (missing / changed / dml to run).
+    Without a session nothing is read."""
     check_files()
     cfg = load_cfg(env)
     if session is not None:
         use_env(session, cfg)
-    done = history(session, create=run or baseline) if session is not None else {}
+    if session is None:
+        done = {}
+    else:
+        done = init_history(session) if init else history(session, create=run)
     to_run, blocked = pending(done)
-    unchanged = len(scripts()) - len(to_run) - len(blocked)
-    print(f"\n{env} ({cfg['database']}): {len(to_run)} to run, {len(blocked)} blocked, {unchanged} unchanged"
-          + ('' if session else ' (history not read: no connection)'))
+    exists = live(session, cfg) if session is not None else set()
+    clash = [(s, h) for s, h in to_run if f"{s.split('/')[1]}/{os.path.basename(s)[:-4].upper()}" in exists]   # dml never matches
+    to_run = [x for x in to_run if x not in clash]                   # CREATE OR REPLACE on a live table / stage wipes it
+    unchanged = len(scripts()) - len(to_run) - len(blocked) - len(clash)
+    if not init:
+        print(f"\n{env} ({cfg['database']}): {len(to_run)} to run, {len(blocked) + len(clash)} blocked, {unchanged} unchanged"
+              + ('' if session else ' (history not read: no connection)'))
     for s, _ in blocked:
         print(f'  BLOCKED  {s}: changed after it ran; put the change in a new dml/ script')
-    if baseline:
-        for s, h in to_run + blocked:
-            record(session, s, h, 'BASELINE')
-        print(f'BASELINE ({env}): {len(to_run) + len(blocked)} scripts recorded as run; nothing was executed.')
-        return
+    for s, _ in clash:
+        print(f'  BLOCKED  {s}: exists but has no history row; running it would wipe it (run the release check, --init, first)')
+    blocked += clash
     if blocked:
         raise RuntimeError(f'{len(blocked)} script(s) blocked; nothing was run')
+    if init and session is not None:                                 # release check: the VERIFY block says it all
+        if not verify(env, session, [s for s, _ in to_run]) and not to_run:   # missing / changed: main's --run does them
+            raise RuntimeError(f'DEPLOYMENT NOT CONFIRMED ({env}) with nothing pending')
+        return
     for s, _ in to_run:
         print(f'  {"run" if run else "would run"}  {s}')
         if show and not run:
@@ -347,8 +404,8 @@ def main():
     ap.add_argument('env')
     ap.add_argument('--run', action='store_true', help='run what is pending, then verify (default: dry run)')
     ap.add_argument('--verify', action='store_true', help='only verify what is deployed (read-only)')
-    ap.add_argument('--baseline', action='store_true', help='record every file as run without running it (once, existing environment)')
     ap.add_argument('--show', action='store_true', help='dry run: also print the SQL that would run')
+    ap.add_argument('--init', action='store_true', help='release check: prints the VERIFY block with missing / changed objects; first time it fills the history from origin/main (runs nothing)')
     ap.add_argument('-c', '--connection', help='connection name from the Snowflake CLI config (not needed in GitHub Actions)')
     if len(sys.argv) < 2 or sys.argv[1].startswith('-'):     # no terminal arguments (Snowsight): use the settings above
         return deploy_all(ENV, RUN, get_session())
@@ -356,8 +413,8 @@ def main():
     try:
         if a.verify:
             sys.exit(0 if verify(a.env, get_session(a.connection)) else 1)
-        connect = a.run or a.baseline or a.connection or os.environ.get('GITHUB_ACTIONS')
-        deploy_all(a.env, a.run, get_session(a.connection) if connect else None, a.baseline, a.show)
+        connect = a.run or a.init or a.connection or os.environ.get('GITHUB_ACTIONS')
+        deploy_all(a.env, a.run, get_session(a.connection) if connect else None, a.show, a.init)
     except Exception as e:
         sys.exit(f'FAILED: {first_line(e)}')
 
